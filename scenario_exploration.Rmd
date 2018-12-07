@@ -1,0 +1,842 @@
+---
+output: html_document
+editor_options: 
+chunk_output_type: console
+---
+
+
+
+### Parameter space exploration
+```{r}
+# using the run_java_abm function
+source( "util/mers_ibm_funcs.R" )
+param <- c(0.2, 1, 5 )
+runs <-50 # number of runs for each parameter set
+
+df <- data.frame()
+d <-  matrix( NA, nrow=(runs+1), ncol=length(param))
+d[ 1, ] <- param
+d2 <- d
+d3 <- d
+for( i in 1:length(param) ){   
+   res <- run_java_ibm( numruns=runs, beta=0.37, stepsize=0.2, 
+                        delay_move = param[i] )
+   d[ 2:(runs+1), i ] <- res$cumul_symptom_onset[ , ncol( res$cumul_symptom_onset )] ## total cumulative incidence
+   d2[ 2:(runs+1), i ] <- res$num_hospital_infected
+   d3[ 2:(runs+1), i ] <- res$var_mean_ratio
+}
+df <- as.data.frame( d )
+names( df ) <- param
+df_long <- reshape2::melt( df )
+
+df2 <- as.data.frame( d2 )
+names( df2 ) <- param
+df2_long <- reshape2::melt( df2 )
+
+df3 <- as.data.frame( d3 )
+names( df3 ) <- param
+df3_long <- reshape2::melt( df3 )
+
+library(ggplot2)
+ggplot( df_long ) +
+   geom_boxplot( aes(variable, value, group=variable) )
+
+ggplot( df2_long ) +
+   geom_boxplot( aes(variable, value, group=variable) )
+
+ggplot( df3_long ) +
+   geom_boxplot( aes(variable, value, group=variable) )
+
+```
+
+
+### Simulation based on ABC estimates
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+source( "util/mers_ibm_funcs.R" )
+runs <- length( abc$param[,1] ) # number of runs for each parameter set
+m <-  matrix( NA, nrow=(runs+1), ncol=3 )
+for( i in 1:runs ){   
+   res <- run_java_ibm( numruns=1, stepsize = 0.2, 
+                        beta = abc$param[ i, 1 ],
+                        shape_gamma_offspring = abc$param[ i, 2 ],
+                        factor_highrisk = abc$param[ i, 3 ],
+                        delay_move = abc$param[ i, 4 ] )
+   m[ i, 1 ] <- res$cumul_symptom_onset[ nrow( res$cumul_symptom_onset ), ]
+   m[ i, 2 ] <- res$num_hospital_infected
+   m[ i, 3 ] <- res$var_mean_ratio
+}
+
+library(tidyverse)
+df <- tbl_df( m )
+df <- gather( df, key, val )
+ggplot( df ) +
+   geom_boxplot( aes(key,val,group=key) )
+
+
+```
+
+### Simulation based on manual parameter set
+```{r}
+source( "util/mers_ibm_funcs.R" )
+library(tidyverse)
+fit <- readRDS( "out/beta_1_3Dec2018.rds" )
+tstop = 60
+npar = 1000; #length( fit$param )
+n_per_par = 1
+nsample = npar * n_per_par
+
+daily_symptom_onset <- matrix( NA, nrow=nsample, ncol=tstop ) # store sim res of the ibm
+cumul_symptom_onset <- daily_symptom_onset # store sim res of the ibm
+var_mean_ratio = rep( NA, nsample ) # store sim res of the ibm
+num_hospital_infected = rep( NA, nsample ) # store sim res of the ibm
+offspring_list <- list()
+longitude_affected_hospital_list <- list()
+latitude_affected_hospital_list <- list()
+
+for( i in 1:npar ){
+   # cat("i = ", i, "\n" )
+   for( j in 1:n_per_par ){
+      cat( "i = ", i, "j = ", j,"\n" )
+      res <- run_java_ibm( numruns=1, 
+                           stepsize = 0.2,
+                           stoptime = tstop,
+                           # beta = fit$param[ i ],
+                           beta = 0.15,
+                           delay_move = 1.2,
+                           random_seed = (i-1)*n_per_par + j )
+   
+      cumul_symptom_onset[ (i-1)*n_per_par + j,  ] <- res$cumul_symptom_onset
+      daily_symptom_onset[ (i-1)*n_per_par + j,  ] <- res$daily_symptom_onset
+      var_mean_ratio[ (i-1)*n_per_par + j ] <-  res$var_mean_ratio
+      num_hospital_infected[ (i-1)*n_per_par + j ] <- res$num_hospital_infected
+      offspring_list[[ (i-1)*n_per_par + j ]] <- res$offspring_list
+      longitude_affected_hospital_list[[ (i-1)*n_per_par + j ]] <- res$longitude_affected_hospital_list
+      latitude_affected_hospital_list[[ (i-1)*n_per_par + j ]] <- res$latitude_affected_hospital_list
+   }
+}
+## Date mark on the X-axis
+dd = read.csv( "data/date.csv", header = FALSE )
+ddd = as.Date( dd$V1, "%m/%d/%Y" )
+# dat_symptom_onset_daily
+source( path_symptom_onset_data ) # from mers_ibm_func.R file
+
+ibm_avg <- colMeans( daily_symptom_onset )
+ibm_q <- apply( daily_symptom_onset, 2, quantile, prob=c(0.025, 0.25, 0.5, 0.75, 0.975) )
+ibm_m <- apply( daily_symptom_onset, 2, mean )
+ibm_daily <- data_frame( day = ddd, 
+                         q0025 = ibm_q[ 1, ],
+                         q0250 = ibm_q[ 2, ],
+                         q0500 = ibm_q[ 3, ],
+                         q0750 = ibm_q[ 4, ], 
+                         q0975 = ibm_q[ 5, ], 
+                         avg = ibm_m )
+
+sim <- gather( ibm_daily, stat, val, - day )
+
+ibm2_avg <- colMeans( cumul_symptom_onset )
+ibm2_q <- apply( cumul_symptom_onset, 2, quantile, prob=c(0.025, 0.25, 0.5, 0.75, 0.975) )
+ibm2_m <- apply( cumul_symptom_onset, 2, mean )
+ibm_cumul <- data_frame( day = ddd, 
+                         q0025 = ibm2_q[ 1, ], 
+                         q0250 = ibm2_q[ 2, ], 
+                         q0500 = ibm2_q[ 3, ], 
+                         q0750 = ibm2_q[ 4, ],
+                         q0975 = ibm2_q[ 5, ], 
+                         avg = ibm2_m )
+sim2 <- gather( ibm_cumul, stat, val, - day )
+
+d = tibble( day = ddd, daily = dat_symptom_onset_daily, cumul = dat_symptom_onset_cumul )
+
+sim_wide = tidyr::spread( sim, stat, val )
+sim_wide2 = tidyr::spread( sim2, stat, val )
+
+ggplot() + 
+   geom_col( data=d, aes( x=day, y=daily ) ) +
+   # geom_point( data=sim_wide, aes( x=day, y=avg ), color="black", inherit.aes = FALSE ) +
+   geom_line( data=sim_wide, aes( x=day, y=q0500 ), inherit.aes = FALSE, size=1.3 ) +
+   geom_ribbon( data=sim_wide, aes( x=day, ymin=q0025, ymax=q0975 ), fill="red", alpha=0.2, inherit.aes = FALSE ) +
+   geom_ribbon( data=sim_wide, aes( x=day, ymin=q0250, ymax=q0750 ), fill="red", alpha=0.4, inherit.aes = FALSE ) +
+   labs( x="", y="Daily symptomatic cases") + 
+   scale_x_date( date_labels="%B %d", limits=c(as.Date("2015-05-10"), as.Date("2015-07-10")) ) + 
+   theme_classic() +
+   # theme( panel.grid.major = element_line( colour="grey94" ) )
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+ 
+ggsave( "figs/daily_inc_fit.png", width=3.4*1.2, height=2.7*1.2, units="in" )
+
+ggplot() +
+   geom_col( data=d, aes( x=day, y=cumul ) ) +
+   # geom_point( data=sim_wide2, aes( x=day, y=avg  ), color="black", inherit.aes = FALSE ) +
+   geom_line( data=sim_wide2, aes( x=day, y=q0500 ), inherit.aes = FALSE, size=1.3 ) +
+   geom_ribbon( data=sim_wide2, aes( x=day, ymin=q0025, ymax=q0975 ), fill="red", alpha=0.2, inherit.aes = FALSE ) +
+   geom_ribbon( data=sim_wide2, aes( x=day, ymin=q0250, ymax=q0750 ), fill="red", alpha=0.5, inherit.aes = FALSE ) +
+   labs( x="", y="Cumulative symptomatic cases") + 
+   scale_x_date( date_labels="%B %d", limits=c(as.Date("2015-05-10"), as.Date("2015-07-10")) )+
+   theme_classic() + 
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+ggsave( "figs/cumul_inc_fit.png", width=3.4*1.2, height=2.7*1.2, units="in" )
+
+quantile( cumul_symptom_onset[,tstop], probs=c(0.025,0.5,0.975) )
+mean( cumul_symptom_onset[,tstop] )
+quantile( num_hospital_infected, probs=c(0.025,0.5,0.975) )
+mean( num_hospital_infected )
+quantile( var_mean_ratio, probs=c(0.025,0.5,0.975) )
+mean( var_mean_ratio )
+```
+
+
+
+### Impact of vaccination programs 
+```{r}
+source( "util/mers_ibm_funcs.R" )
+library(tidyverse)
+tstop = 60
+fit <- readRDS("out/beta_abc_beaumont_3.rds")
+nsample = 100 ## length( fit$param )
+# vacc_radius <- c(30,40,50,60,70,80,90)
+vacc_threhold_case <- 5
+vacc_threhold_day <- 14
+vacc_radius <- 30
+vacc_cov <- c( 0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
+rel_pep <- c( 0.1, 0.3, 0.5 )
+vacc_eff <- c( 0.3, 0.5, 0.7, 0.9 )
+delay_vacc <- c( 7, 14, 21, 28 )
+pars <- data.frame( expand.grid( vacc_cov = vacc_cov, rel_pep = rel_pep, vacc_eff = vacc_eff, delay_vacc = delay_vacc ) )
+cumul_case <- matrix( NA, nrow = nsample, ncol = nrow(pars) ) # store sim res of the ibm
+cumul_vacc <- cumul_case # store sim res of the ibm
+vacc_status <- cumul_case # store sim res of the ibm
+# for( i in 1:nrow(pars) ){
+   for( i in 1:1 ){
+   for( j in 1:nsample ) {
+      cat("i = ", i, ", j = ", j, "\n" )
+      res <- run_java_ibm( numruns=1, 
+                           stepsize = 0.2,
+                           stoptime = tstop,
+                           beta = 0.14405,
+                           delay_move = 1.2,
+                           shape_gamma_offspring = 0.2,
+                           vaccination_scenario = TRUE,
+                           vacc_coverage = pars$vacc_cov[ i ],
+                           vacc_eff = pars$vacc_eff[ i ],
+                           rel_vacc_eff_post_exposure = pars$rel_pep[ i ],
+                           delay_vacc = pars$delay_vacc[ i ],
+                           vaccination_target_radius = vacc_radius,
+                           threshold_case_vacc = as.integer( vacc_threhold_case ), 
+                           threshold_day_vacc = as.integer( vacc_threhold_day ),
+                           random_seed = j )
+   
+      cumul_case[ j, i ] <- res$cumul_symptom_onset[ tstop ]
+      cumul_vacc[ j, i ] <- res$cumul_vacc_dose 
+      vacc_status[ j, i ] <- res$vacc_day_adjusted
+   }
+}
+list <- list()
+list$cumul_case <- cumul_case
+list$cumul_vacc <- cumul_vacc
+list$vacc_status <- vacc_status
+# filename <- ( "vacc_radius", sapply( 1:8, function(x) paste0("chi_",x) ) )
+# saveRDS( list, "out/vacc_sim.RDS" )
+```
+
+#### Plot vaccine impact
+```{r}
+res <- readRDS( "out/vacc_sim.RDS" )
+# ci <- apply( res$cumul_case, 2, quantile )
+# ci_red <- 100 * ( 1 - ci[3,] / ci[3,1] )
+# vacc <- apply( res$cumul_vacc, 2, quantile )
+# case_averted  <- ci[3,1] - ci[3,]
+# case_averted_per_10000 <- 10000 * case_averted / vacc[3,]
+# res_df <- cbind( pars[1:36,], ci=ci[3,], ci_red=ci_red, vacc=vacc[3,], 
+#                  case_averted = case_averted_per_10000 )
+
+### calculating statistics by individual simulation
+library(tidyverse)
+ci_red <- 100*( 1 - res$cumul_case / res$cumul_case[,1] )
+case_averted_per_10000 <- 10000 * (res$cumul_case[,1] - res$cumul_case ) / res$cumul_vacc
+
+pars <- pars %>% slice( rep(1:n(), each = nsample ) )
+resdf <- cbind(pars, ci_red=as.vector(ci_red), case_averted_per_10000=as.vector(case_averted_per_10000))
+
+ggplot( filter(resdf, vacc_eff==0.3) ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), ci_red, fill=as.factor(rel_pep) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-100,100))+
+   labs( x="Vacccination coverage(%)", y="Reduction of outbreak size (%)") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+# ggsave( "figs/vacc_cov_red.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( filter(resdf, vacc_eff==0.3) ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted_per_10000, fill=as.factor(rel_pep) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-50,50))+
+   labs( x="Vacccination coverage(%)", y="Case averted per 10,000 doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+# ggsave( "figs/vacc_cov_case.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+### Parallel Simulation based on manual parameter set
+```{r}
+source( "util/mers_ibm_funcs.R" )
+# fit <- readRDS( "out/beta_1_3Dec2018.rds" )
+library(parallel)
+num_cores <- detectCores()
+cl <- makeCluster( num_cores-1 )
+
+vacc_cov <- c( 0.9 )
+rel_pep <- c( 0.5 )
+vacc_eff <- c( 0.7 )
+delay_vacc <- c( 14 )
+vacc_radius <- c( 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 )
+threshold_case_vacc <- c( 1, 3, 5, 7, 9 )
+n_per_par <- 1
+pars <- data.frame( expand.grid( vacc_cov = vacc_cov, 
+                                 rel_pep = rel_pep, 
+                                 vacc_eff = vacc_eff, 
+                                 delay_vacc = delay_vacc,
+                                 vacc_radius = vacc_radius,
+                                  threshold_case_vacc =  threshold_case_vacc) )
+clusterExport( cl, c( "run_java_ibm", "run_ibm_simple" , "pars", "n_per_par" ) )
+res_cls <- parSapply( cl, 1:nrow(pars), 
+                      function(x) run_ibm_simple( 
+                         iter=n_per_par, 
+                         beta = 0.14405,
+                         delay_move = 1.2,
+                         shape_gamma_offspring = 0.2,
+                         under_vaccination_scenario = TRUE,
+                         vaccination_scenario = "Distance",
+                         vacc_coverage = pars$vacc_cov[ x ],
+                         vacc_eff = pars$vacc_eff[ x ],
+                         rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
+                         delay_vacc = pars$delay_vacc[ x ],
+                         vaccination_target_radius =  pars$vacc_radius[ x ],
+                         threshold_case_vacc = as.integer(pars$threshold_case_vacc[ x ]) , 
+                         threshold_day_vacc = as.integer(21) ) ) 
+
+stopCluster( cl )
+filename <- paste0( "out/test_",format(Sys.time(), "%Y%m%dT%H%M%S"), ".rds")
+saveRDS( res_cls, filename )
+
+```
+
+```{r}
+library(parallel)
+num_cores <- detectCores()
+cl <- makeCluster( num_cores-1 )
+
+vacc_cov <- c( 0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
+rel_pep <- c( 0.1, 0.3, 0.5 )
+vacc_eff <- c( 0.3, 0.5, 0.7, 0.9 )
+delay_vacc <- c( 7, 14, 21, 28 )
+n_per_par <- 1
+pars <- data.frame( expand.grid( vacc_cov = vacc_cov, rel_pep = rel_pep, vacc_eff = vacc_eff, delay_vacc = delay_vacc ) )
+clusterExport( cl, c( "run_java_ibm", "run_ibm_simple" , "pars", "n_per_par" ) )
+res_cls <- parSapply( cl, 1:nrow(pars), 
+                      function(x) run_ibm_simple( 
+                         iter=n_per_par, 
+                         beta = 0.14405,
+                         delay_move = 1.2,
+                         shape_gamma_offspring = 0.2,
+                         under_vaccination_scenario = TRUE,
+                         vaccination_scenario = "Distance",
+                         vacc_coverage = pars$vacc_cov[ x ],
+                         vacc_eff = pars$vacc_eff[ x ],
+                         rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
+                         delay_vacc = pars$delay_vacc[ x ],
+                         vaccination_target_radius = 30,
+                         threshold_case_vacc = as.integer(5) , 
+                         threshold_day_vacc = as.integer(14) ) ) 
+
+stopCluster( cl )
+filename <- paste0( "out/vacccov_relpop",format(Sys.time(), "%Y%m%dT%H%M%S"), ".rds")
+saveRDS( res_cls, filename )
+```
+
+```{r}
+novacc <- readRDS( "out/no_vacc.RDS" )
+res <- readRDS( "out/vacc_coverage.RDS" )
+id <- which( res$vacc_status == 0 ) ## id to mark the sim where vaccination didn't take place because the cases were not
+nvar = ncol( res$cumul_case )
+ci_novacc <- rep( novacc$cumul_case, nvar )
+ci <- c( novacc$cumul_case, as.vector( res$cumul_case ) )
+vacc <- c( novacc$cumul_vacc, as.vector( res$cumul_vacc ) )
+vacc_cov <- as.vector( sapply( c(0,30,50,70,95), function(x) rep(x,nsample)) )
+dd <- tbl_df( data.frame( ids=1:length(vacc), ci =ci, vacc=vacc, vacc_cov = vacc_cov  ) )
+dd$vacc_cov <- factor( dd$vacc_cov )
+
+library( ggplot2 )
+# library( ggridges )
+# ggplot(dd, aes(y=as.factor(vacc_cov), x=ci)) +
+#    geom_density_ridges()
+
+ggplot( dd, aes(vacc_cov, ci) ) +
+   geom_boxplot() + 
+   coord_flip()+
+   geom_jitter( width=0.2, alpha=0.4 ) +
+   # scale_y_continuous( limits=c(0,1000) ) +
+   labs( x="Vacccination coverage(%)", y="Cumulative incidence") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+# ggsave( "figs/vacc_cov_case.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( dd, aes(vacc_cov, vacc) ) + 
+   geom_boxplot() +
+   coord_flip() +
+   geom_jitter( width=0.2, alpha=0.4 ) +
+   labs( x="Vacccination coverage(%)", y="Total vaccine doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+# ggsave( "figs/vacc_cov_vacc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+```{r}
+dd <- dd[-id,]
+ve_mean <- rep( NA, nvar )
+ve_med <- rep( NA, 6 )
+vacc_dose_mean <- rep( NA, 6 )
+vacc_dose_med <- rep( NA, 6 )
+case_avt_per_dose_mean <- rep( NA, 6 )
+case_avt_per_dose_med <- rep( NA, 6 )
+for(i in 1: 6 ){
+   ddd <- dplyr::filter( dd, 100*(i-1) < ids & ids <= 100*i )
+   ci_novacc_mean <- mean( ddd$ci_novacc )
+
+   ci_novacc_med <- median( ddd$ci_novacc )
+   ci_vacc_mean <- mean( ddd$ci_vacc )
+   ci_vacc_med <- median( ddd$ci_vacc )
+
+   ve_mean[ i ] = 100*(ci_novacc_mean - ci_vacc_mean) / ci_novacc_mean
+   ve_med[ i ] = 100*(ci_novacc_med - ci_vacc_med) / ci_novacc_med
+   vacc_dose_mean[ i ] = mean( ddd$vacc )
+   vacc_dose_med[ i ] = median( ddd$vacc )
+   case_avt_per_dose_mean[ i ] <- (ci_novacc_mean - ci_vacc_mean) /vacc_dose_mean
+   case_avt_per_dose_med[ i ] <- (ci_novacc_med - ci_vacc_med)/vacc_dose_med
+   
+}
+
+for(i in 1: 6 ){
+   ddd <- dplyr::filter( dd, 100*(i-1) < ids & ids <= 100*i ); cat(nrow(ddd),",") 
+}
+case_threshold <- c(rep(5,100),rep(8,100),rep(11,100),rep(14,90),rep(17,64),rep(20,34))
+day_threshold <- c(rep(14,length(case_threshold)))
+dd$case_threshold <- case_threshold
+dd$day_threshold <- day_threshold
+ddf <- dplyr::tbl_df( dd )
+ddf$case_threshold <- factor( ddf$case_threshold )
+
+library( ggplot2 )
+ggplot( ddf, aes(case_threshold, ci_vacc) ) + 
+   geom_boxplot( ) +
+   geom_jitter( width = 0.2 ) +
+   scale_y_continuous( limits=c(0,1000) ) +
+   labs( x="Threshold incidence for vaccination response", y="Total cases") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+# ggsave( "figs/threshold_case_vacc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( ddf, aes(case_threshold, vacc) ) + 
+   geom_boxplot( ) +
+   geom_jitter( width = 0.2 ) +
+   labs( x="Threshold incidence for vaccination response", y="Total vaccine doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+# ggsave( "figs/threshold_vacc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+### Tile plot of vaccine impact
+```{r}
+### Overall vaccine effectiveness
+library(tidyverse)
+vacc_radius <- c(30,40,50,60,70,80,90)
+vacc_threhold_case <- c(5, 7, 9, 11, 13, 15)
+df <- tbl_df( expand.grid( threshold=vacc_threhold_case, radius=vacc_radius ) )
+df$VE <- NA
+# call data
+a <- readRDS( "out/no_vacc.RDS" )
+b <- readRDS( "out/vacc_case_radius.RDS" )
+ci_mean_novacc <- mean( a$cumul_case )
+ci_mean_vacc <- colMeans( b$cumul_case )
+dose_mean_vacc <- colMeans( b$cumul_vacc )
+
+df$VE <- (ci_mean_novacc-ci_mean_vacc) / ci_mean_novacc * 100
+df$ve_per_dose <- (ci_mean_novacc-ci_mean_vacc) / dose_mean_vacc * 10000
+ 
+library(viridis)
+ggplot( df, aes(radius, threshold ) ) +
+   # expand_limits( x = 0, y = 0 ) +
+   geom_tile( aes( fill = ve_per_dose), color = "white") +
+   scale_fill_viridis() +
+   labs( x="Vaccination radius", y="Threshold case incidence", fill="VE" ) +
+   theme_classic() 
+
+ggsave( "figs/outbreak_prob.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+cut_off <- seq( 1, 30, 1 )
+time <- 1:30
+df <- tbl_df( expand.grid( time=time, cut_off=cut_off ) )
+df$prob <- NA
+ci <- tbl_df( cumul_symptom_onset ) 
+index = 1
+for( i in 1:length(cut_off) ){
+   for( j in 1:length(time) ) {
+      con_1 <- function(x) x[ j ] > cut_off[ i ]
+      con_2 <- function(x) tail(x,1) > 200
+      d1 <- ci %>% select_if( con_1 )
+      d2 <- d1 %>% select_if( con_2 )
+      if( ncol(d1) > 0 ){ 
+         df[ index, "prob" ] <- ncol( d2 ) / ncol( d1 )
+      }
+      index <- index + 1
+   }
+}
+
+library(viridis)
+ggplot( df, aes(time, cut_off ) ) +
+   expand_limits( x = 0, y = 0 ) +
+   geom_tile( aes( fill = prob), color = "white") +
+   scale_fill_viridis() +
+   labs( x="Day", y="Cut-off", fill="Prob" ) +
+   theme_classic() 
+
+ggsave( "figs/outbreak_prob.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+```{r}
+ci <- tbl_df( cumul_symptom_onset[ nrow(cumul_symptom_onset), ] )
+ggplot( ci ) +
+   geom_histogram( aes( x=value ), binwidth = 10 ) +
+   labs( x="Outbreak size", y="Frequency" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="grey94" ) )
+
+# ggsave( "figs/outbreak_size_dist_ts0p1.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+### Fitting offspring distribution 
+```{r}
+# offspring_list from the many runs
+# table(offspring_list[[4]])
+freq <- data.frame()
+for( i in 1:length( offspring_list ) ){
+   d <- tbl_df(unlist(offspring_list[[i]]))
+   dd <- 
+      d %>%
+      group_by( value ) %>%
+      summarise (n = n()) %>%
+      mutate( freq = n / sum(n) )
+   
+   freq <- rbind(freq,dd)
+}
+
+dd_ <- freq %>% dplyr::select( value, freq )
+
+avg = rep( NA, 100 )
+sd = avg
+n = avg
+for( i in 0:99 ){
+   d = filter( dd_, value == i )
+   n[i+1] = i
+   avg[i+1] = mean(d$freq)
+   sd[i+1] = sd(d$freq) 
+}
+avg_sd = tbl_df( cbind( avg, sd ) )
+
+dat_case = c( 0, 1, 2, 6, 11, 23, 28, 79 )
+dat_freq = c( 170, 7, 4, 1, 1, 1, 1, 1 ) / 186
+
+dat_offspring = data_frame( case = 0:80, freq=rep(NA,81) )
+dat_offspring[ dat_case+1, 2 ] = dat_freq
+
+ggplot( avg_sd ) + 
+   geom_errorbar( aes(x=n, ymin=avg+sd, ymax=avg-sd), position = 'dodge', width=0.25 ) +
+   geom_bar ( aes( n, avg ), stat = "identity" ) + 
+   xlim(-0.5,80) +
+   geom_point( data=dat_offspring, mapping = aes(case, freq), inherit.aes = FALSE, color="red") + 
+   labs( x="Offspring size", y="Relative frequency") + 
+   theme_classic() + 
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) + 
+   geom_rect( xmin = 70, xmax = 72, ymin = 0.8, ymax = 0.82,   fill = "grey30") +
+   geom_point( aes(71, 0.77), color="red", inherit.aes = FALSE ) + 
+   annotate( "text", x = 78, y = 0.82, label="model") + 
+   annotate( "text", x = 78, y = 0.77, label="data")  
+   
+# ggsave( "figs/offspring.png", width=3.4*1.2, height=2.5*1.2, units="in" )
+```
+
+
+### Mapping the hospitals where transmissions occurred
+```{r}
+library( rgdal )
+library( broom )
+library( plyr )
+library( rgeos )
+library( maptools )
+library( ggplot2 )
+library( dplyr )
+library( viridis )
+# Preparing the base Korean map
+korea <- readOGR( dsn = path_Korea_shapefile, layer="KOR_adm1" )
+korea@data$id <- rownames( korea@data )
+korea_points <- broom::tidy( korea, region="id" )
+korea_df <- join( korea_points, korea@data, by="id" )
+# Extracting outbreak info from typhoid occurrence database
+# read the outbreak data in excel file
+library(readxl)
+library(purrr)
+library(readxl)
+d <- read_xlsx( "C:/Users/jongHoon.kim/Workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/out/hospital_pop.xlsx" )
+d$X_POS <- as.double( d$X_POS )
+d$Y_POS <- as.double( d$Y_POS )
+# dd <- filter(d, grepl( "????????????", d$YADM_NM.x))
+# MERS-CoV affected hospitals
+mers_hosp <- read_xlsx( "C:/Users/jongHoon.kim/Workspace/IVI_Projects/MERS/Data_Analysis/data/mers-cov_hospitals.xlsx" )
+# simulated hospitals
+## save the data in case you want to the plot again
+sim_hosp <- data.frame( lon=unlist(longitude_affected_hospital_list),
+                        lat=unlist(latitude_affected_hospital_list) )
+
+ggplot( data = korea_df ) + 
+  geom_polygon( aes(x=long, y=lat, group=group ), fill=NA, color = "black" ) +
+  expand_limits( x = korea_df$long, y=korea_df$lat ) + 
+  geom_point( data=d, aes(x=X_POS, y=Y_POS), shape=16, size=log10(d$POP_RISK), alpha=0.1, color="grey", inherit.aes=FALSE ) + 
+  geom_point( data=mers_hosp, aes(x=X, y=Y), shape=16, size=3, alpha=0.4, color="red", inherit.aes=FALSE ) + 
+  # geom_point( data=sim_hosp, aes(x=lon, y=lat), shape=16, size=3, alpha=0.4, color="royalblue", inherit.aes=FALSE ) + 
+  theme( 
+        panel.background = element_blank(), # bg of the panel
+        plot.background = element_blank(), # bg of the plot
+        legend.background = element_blank(), # get rid of legend bg
+        legend.box.background = element_blank(),
+        panel.spacing = unit( c(0,0,0,0), "null" ),
+        plot.margin = unit( c(0,0,0,0), "null" ), 
+        axis.line = element_blank(), 
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(), 
+        axis.ticks = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = c( 0.2, 0.3 ) ) 
+
+ # ggsave( "figs/hosp_mers_map_data.png" )
+```
+
+### Many runs by setting parameter values manually
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# setwd( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Transmission_Modeling/" )
+source( "util/mers_ibm_funcs.R" )
+source( "data/mers_symptom_onset_data.R" )
+java_class_path_setup()
+library(tidyverse)
+
+res <- run_java_ibm( numruns=100, stepsize=0.2, scenario="2015" )
+endrow <- nrow( res$cumul_symptom_onset )
+
+quantile( res$cumul_symptom_onset[ endrow, ], probs=c(0.025,0.5,0.975) )
+quantile( res$var_mean_ratio, probs=c(0.025,0.5,0.975), na.rm=TRUE )
+quantile( res$num_hospital_infected, probs=c(0.025,0.5,0.975) )
+mean( res$cumul_symptom_onset[ stoptime, ] )
+mean( res$var_mean_ratio, na.rm=TRUE )
+mean( res$num_hospital_infected )
+res$offspring_list[[1]]
+
+dd = read.csv( "data/date.csv", header = FALSE )
+ddd = as.Date( dd$V1, "%m/%d/%Y" )
+
+mat <- res$daily_symptom_onset
+mat2 <- res$cumul_symptom_onset
+
+ibm_avg <- rowMeans( mat )
+ibm_q <- apply( mat, 1, quantile, prob=c(0.025, 0.25, 0.5, 0.75, 0.975) )
+ibm_q_t = t(ibm_q)
+ibm_m <- apply( mat, 1, mean )
+ibm_daily <- data_frame( date = ddd, 
+                         q0025 = ibm_q_t[ ,1],
+                         q0250 = ibm_q_t[ ,2],
+                         q0500 = ibm_q_t[ ,3],
+                         q0750 = ibm_q_t[ ,4], 
+                         q0975 = ibm_q_t[ ,5], 
+                         avg = ibm_m )
+
+sim <- gather( ibm_daily, stat, val, - date )
+
+ibm2_avg <- rowMeans( mat2 )
+ibm2_q <- apply( mat2, 1, quantile, prob=c(0.025, 0.25, 0.5, 0.75, 0.975) )
+ibm2_m <- apply( mat2, 1, mean )
+
+ibm_cumul <- data_frame( date = ddd, 
+                         q0025 = t(ibm2_q)[,1], 
+                         q0250 = t(ibm2_q)[,2], 
+                         q0500 = t(ibm2_q)[,3], 
+                         q0750 = t(ibm2_q)[,4],
+                         q0975 = t(ibm2_q)[,5], 
+                         avg = ibm2_m )
+sim2 <- gather( ibm_cumul, stat, val, - date )
+
+d = tibble( date = ddd, daily = dat_symptom_onset_daily, cumul = dat_symptom_onset_cumul )
+
+
+sim_wide = tidyr::spread( sim, stat, val )
+sim_wide2 = tidyr::spread( sim2, stat, val )
+
+# source( "util/ggplot2_theme.r" )
+ggplot() + 
+   geom_col( data=d, aes( x=date, y=daily ) ) +
+   geom_point( data=sim_wide, aes( x=date, y=avg ), color="black", inherit.aes = FALSE ) +
+   geom_line( data=sim_wide, aes( x=date, y=q0500 ), inherit.aes = FALSE, size=1.5 ) +
+   geom_ribbon( data=sim_wide, aes( x=date, ymin=q0025, ymax=q0975 ), fill="red", alpha=0.2, inherit.aes = FALSE ) +
+   geom_ribbon( data=sim_wide, aes( x=date, ymin=q0250, ymax=q0750 ), fill="red", alpha=0.4, inherit.aes = FALSE ) +
+   labs( x="", y="Daily symptomatic cases") + 
+   scale_x_date( date_labels="%B %d", limits=c(as.Date("2015-05-10"), as.Date("2015-07-10")) )
+
+   # theme_classic() +
+   # theme( panel.grid.major = element_line( colour="grey94" ) )
+   # theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   # theme_pub()
+
+ # ggsave( "figs/daily_7Setp2018.png", width=3.4*1.2, height=2.5*1.2, units="in"  )
+
+ggplot() +
+   geom_col( data=d, aes( x=date, y=cumul ) ) +
+   geom_point( data=sim_wide2, aes( x=date, y=avg ), color="black", inherit.aes = FALSE ) +
+   geom_line( data=sim_wide2, aes( x=date, y=q0500 ), inherit.aes = FALSE, size=1.5 ) +
+   geom_ribbon( data=sim_wide2, aes( x=date, ymin=q0025, ymax=q0975 ), fill="red", alpha=0.2, inherit.aes = FALSE ) +
+   geom_ribbon( data=sim_wide2, aes( x=date, ymin=q0250, ymax=q0750 ), fill="red", alpha=0.5, inherit.aes = FALSE ) +
+   labs( x="", y="Cumulative symptomatic cases") + 
+   scale_x_date( date_labels="%B %d", limits=c(as.Date("2015-05-10"), as.Date("2015-07-10")) )
+
+```
+
+
+### Outbreak size distribution upon importation
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# setwd( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Transmission_Modeling/" )
+source( "util/mers_ibm_funcs.R" )
+java_class_path_setup()
+library(tidyverse)
+
+runs = 10
+stoptime = 60
+vacc_start_time = stoptime
+cumul_symptom_onset = matrix( NA, nrow=stoptime, ncol=runs )
+daily_symptom_onset = cumul_symptom_onset 
+tbegin = proc.time()
+
+stepsize = 0.1
+beta = 0.3
+frac_high = 0.15
+factor_highrisk = 30
+
+offspring_list = list()   
+for( i in 1:runs ){
+    pars <- .jnew( "Parameters" )
+   .jcall( pars, "V", "setRandomSeed", 2 )
+   
+   .jcall( pars, "V", "setStepSize", stepsize )
+   .jcall( pars, "V", "setStopTime", stoptime )
+   .jcall( pars, "V", "setRateTransmit", beta )
+   .jcall( pars, "V", "setPropSeekingCareFromOtherHospitals", frac_high )
+   .jcall( pars, "V", "setFactorHighRiskTransmissibility", factor_highrisk )
+	.jcall( pars, "V", "setUnderVaccinationScenario", FALSE )
+   .jcall( pars, "V", "setPreEmptiveVaccination", FALSE )
+   .jcall( pars, "V", "setAreaTargetedVaccination", FALSE )
+      
+   model <- .jnew( "Model" )
+   # cat( .jcall( pars, "I", "getRandomSeed" ) )
+   arr <- .jcall( model, "[[D", "outbreakUponImportation", pars )
+   # arr <- .jcall( model, "[[D", "runModel", pars )
+   out <- sapply( arr, .jevalArray )
+   cumul_symptom_onset[ , i ] <- out[ 7, ]
+   daily_symptom_onset[ 2:stoptime, i ] <- cumul_symptom_onset[ 2:stoptime, i ] - cumul_symptom_onset[ 1:(stoptime-1), i ] 
+   
+}
+
+proc.time() - tbegin
+
+ci <- tbl_df( cumul_symptom_onset[ nrow(cumul_symptom_onset), ] )
+
+ggplot( ci ) +
+   geom_histogram( aes( x=value ), binwidth = 10 ) +
+   labs( x="Outbreak size", y="Frequency" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="grey94" ) )
+#    
+# ggsave( "figs/outbreak_size_distribution.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+d <- bind_cols( data_frame( t=1:nrow(daily_symptom_onset) ), tbl_df(daily_symptom_onset) ) 
+d_long <- gather( d, key, val, -t)
+ggplot( d_long ) +
+   geom_line( aes( x=t, y=val, color=key ), alpha=0.2, show.legend=FALSE ) + 
+   scale_color_manual( values=rep("black",1000) ) +
+   labs( x="Day", y="Symptom onset" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="grey94" ) )
+
+# ggsave( "figs/outbreak_size_distribution.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+
+### Probability of outbreak of size k or larger given the number of cases observed in t1 days after the first case developed symptoms (and imported) on day t0
+```{r}
+library(tidyverse)
+cut_off <- seq( 1, 50, 1 )
+time <- 1:50
+df <- tbl_df( expand.grid( time=time, cut_off=cut_off ) )
+df$prob_outbreak <- NA
+df$prob_occurrence <- NA
+# ci <- tbl_df( cumul_symptom_onset )
+ci <- tbl_df( t(cumul_symptom_onset) )
+index = 1
+
+for( i in 1:length(cut_off) ){
+   for( j in 1:length(time) ) {
+      con_1 <- function(x) x[ j ] >= df$cut_off[ i ]
+      con_2 <- function(x) tail(x,1) > 100
+      d1 <- ci %>% select_if( con_1 )
+      d2 <- d1 %>% select_if( con_2 )
+
+      if( ncol(d1) > 0 ){
+         df[ index, "prob_outbreak" ] <- ncol( d2 ) / ncol( d1 )
+      }
+      df[ index, "prob_occurrence" ] <- ncol( d1 ) / ncol( ci )
+      index <- index + 1
+   }
+}
+mers_d <- data.frame( time=1:60, ci=dat_symptom_onset_cumul )
+
+library(viridis)
+ggplot( df, aes(time, cut_off ) ) +
+   expand_limits( x = 0, y = 0 ) +
+   geom_tile( aes( fill = prob_outbreak ), color = "white") +
+   geom_point( data=mers_d, aes( x=time, y=ci ), color="red", inherit.aes = FALSE) +
+   scale_x_continuous( limits=c(0,31) ) +
+   scale_y_continuous( limits=c(0,51) ) +
+   scale_fill_viridis() +
+   labs( x="Day since symptom onset of the index case", y="MERS-CoV incidence", 
+         fill="Prob.of an oubreak of size >100 " ) +
+   theme_classic() + 
+   theme( legend.position="bottom" )
+# ggsave( "figs/outbreak_prob_mers_100.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+library(viridis)
+ggplot( df, aes(time, cut_off ) ) +
+   expand_limits( x = 0, y = 0 ) +
+   geom_tile( aes( fill = prob_occurrence ), color = "white") +
+   geom_point( data=mers_d, aes( x=time, y=ci ), color="red", inherit.aes = FALSE) +
+   scale_x_continuous( limits=c(0,31) ) +
+   scale_y_continuous( limits=c(0,31) ) +
+   scale_fill_viridis() +
+   labs( x="Day since symptom onset of the index case", y="MERS-CoV incidence", 
+         fill="Prob " ) +
+   theme_classic() + 
+   theme( legend.position="bottom" )
+
+# ggsave( "figs/incidence_prob.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+
