@@ -1,6 +1,7 @@
 ---
 output: html_document
 editor_options: 
+  chunk_output_type: console
 chunk_output_type: console
 ---
 
@@ -197,7 +198,7 @@ nsample = 100 ## length( fit$param )
 vacc_threhold_case <- 5
 vacc_threhold_day <- 14
 vacc_radius <- 30
-vacc_cov <- c( 0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
+vacc_cov <- c( 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
 rel_pep <- c( 0.1, 0.3, 0.5 )
 vacc_eff <- c( 0.3, 0.5, 0.7, 0.9 )
 delay_vacc <- c( 7, 14, 21, 28 )
@@ -279,81 +280,297 @@ ggplot( filter(resdf, vacc_eff==0.3) ) +
 
 ```
 
-### Parallel Simulation based on manual parameter set
+### Parallel Simulation 
+#### Simulation acorss threshold case for vaccination initiation
 ```{r}
 source( "util/mers_ibm_funcs.R" )
-# fit <- readRDS( "out/beta_1_3Dec2018.rds" )
+# fit <- readRDS( "out/beta_move_1_4Dec2018.rds" )
+# smpl <- sample( 1:nrow( fit$param ), 30 )
+# fit_smpl <-data.frame( beta=fit$param[ smpl, 1 ], delay_move = fit$param[ smpl, 2 ] ) 
+
+fit_subset <- readRDS( "out/pars_20181208T180504.rds" )
+pars <- data.frame( beta = unique(fit_subset$beta), delay_move = unique(fit_subset$delay_move), n_per_par = 40 )
+  
+# vacc_cov <- c( 0.9 )
+# rel_pep <- c( 0.5 )
+# vacc_eff <- c( 0.7 )
+# delay_vacc <- c( 14 )
+# vacc_radius <- c( 30 )
+# threshold_case_vacc <- c( 1, 3, 5, 7, 9 )
+# threshold_day_vacc <- c( 14 )
+# vacc_scenario <- c( "Distance", "Region", "Hospital" )
+# n_per_par <- 40
+# 
+# pars0 <- data.frame( expand.grid( vacc_cov = vacc_cov, 
+#                                  rel_pep = rel_pep, 
+#                                  vacc_eff = vacc_eff, 
+#                                  delay_vacc = delay_vacc, 
+#                                  vacc_scenario = vacc_scenario, 
+#                                  vacc_radius = vacc_radius,
+#                                  threshold_case_vacc = threshold_case_vacc,
+#                                  threshold_day_vacc = threshold_day_vacc,
+#                                  n_per_par = n_per_par ), stringsAsFactors = FALSE )
+# 
+# fit_smpl_long <- fit_smpl %>% dplyr::slice( rep( 1:n(), each = nrow(pars0) ) )
+# 
+# pars_long <- rbind( pars0, pars0 )
+# for( i in 1:(nrow( fit_smpl )-2) ){
+#   pars_long <- rbind ( pars_long, pars0 ) 
+# }
+# 
+# pars <- cbind( fit_smpl_long, pars_long )
+
 library(parallel)
 num_cores <- detectCores()
 cl <- makeCluster( num_cores-1 )
-
-vacc_cov <- c( 0.9 )
-rel_pep <- c( 0.5 )
-vacc_eff <- c( 0.7 )
-delay_vacc <- c( 14 )
-vacc_radius <- c( 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 )
-threshold_case_vacc <- c( 1, 3, 5, 7, 9 )
-n_per_par <- 1
-pars <- data.frame( expand.grid( vacc_cov = vacc_cov, 
-                                 rel_pep = rel_pep, 
-                                 vacc_eff = vacc_eff, 
-                                 delay_vacc = delay_vacc,
-                                 vacc_radius = vacc_radius,
-                                  threshold_case_vacc =  threshold_case_vacc) )
-clusterExport( cl, c( "run_java_ibm", "run_ibm_simple" , "pars", "n_per_par" ) )
-res_cls <- parSapply( cl, 1:nrow(pars), 
+clusterExport( cl, c( "run_java_ibm", "run_ibm_simple", "pars" ) )
+res_cls <- parLapply( cl, 1:nrow(pars),
+                      # res_cls <- parLapply( cl, 1:1,
                       function(x) run_ibm_simple( 
-                         iter=n_per_par, 
-                         beta = 0.14405,
-                         delay_move = 1.2,
-                         shape_gamma_offspring = 0.2,
-                         under_vaccination_scenario = TRUE,
-                         vaccination_scenario = "Distance",
-                         vacc_coverage = pars$vacc_cov[ x ],
-                         vacc_eff = pars$vacc_eff[ x ],
-                         rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
-                         delay_vacc = pars$delay_vacc[ x ],
-                         vaccination_target_radius =  pars$vacc_radius[ x ],
-                         threshold_case_vacc = as.integer(pars$threshold_case_vacc[ x ]) , 
-                         threshold_day_vacc = as.integer(21) ) ) 
+                         iter=pars$n_per_par[ x ], 
+                         # beta = 0.1924,
+                         # delay_move = 1.2,
+                         beta = pars$beta[ x ],
+                         delay_move = pars$delay_move[ x ], 
+                         under_vaccination_scenario = FALSE
+                         # vaccination_scenario = as.character( pars$vacc_scenario[ x ] ),
+                         # vacc_coverage = pars$vacc_cov[ x ],
+                         # vacc_eff = pars$vacc_eff[ x ],
+                         # rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
+                         # delay_vacc = pars$delay_vacc[ x ],
+                         # vaccination_target_radius = pars$vacc_radius[ x ],
+                         # threshold_case_vacc = pars$threshold_case_vacc[ x ] , 
+                         # threshold_day_vacc = pars$threshold_day_vacc[ x ] 
+                         ) ) 
 
 stopCluster( cl )
-filename <- paste0( "out/test_",format(Sys.time(), "%Y%m%dT%H%M%S"), ".rds")
-saveRDS( res_cls, filename )
+tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
+saveRDS( res_cls, paste0( "out/control_", tstamp, ".rds") )
+saveRDS( pars, paste0( "out/pars_",tstamp, ".rds" ) )
 
 ```
 
+#### Simulation across vaccine coverage rates
 ```{r}
+source( "util/mers_ibm_funcs.R" )
+library( dplyr )
+fit <- readRDS( "out/pars_20181208T180504.rds" )
+fit_sample <- data.frame( beta = unique(fit$beta)[1:10], 
+                          delay_move = unique(fit$delay_move)[1:10] )
+
+threshold_case_vacc <- 5
+threshold_day_vacc <- 14
+vacc_radius <- 30
+vacc_cov <- c( 0.0, 0.1, 0.3, 0.5, 0.7, 0.9 )
+rel_pep <- c( 0.1, 0.5 )
+vacc_eff <- c( 0.3, 0.5, 0.7 )
+delay_vacc <- c( 14 )
+under_vacc <- TRUE
+vacc_scenario <- c( "Distance" )
+n_per_par <- 1
+
+pars0 <- data.frame( expand.grid( vacc_cov = vacc_cov,
+                                 rel_pep = rel_pep,
+                                 vacc_eff = vacc_eff,
+                                 delay_vacc = delay_vacc,
+                                 under_vacc = under_vacc,
+                                 vacc_scenario = vacc_scenario,
+                                 vacc_radius = vacc_radius,
+                                 threshold_case_vacc = threshold_case_vacc,
+                                 threshold_day_vacc = threshold_day_vacc,
+                                 n_per_par = n_per_par ), stringsAsFactors = FALSE )
+
+fit_sample_long <- fit_sample %>% slice( rep( 1:n(), each = nrow(pars0) ) )
+
+pars_long <- rbind( pars0, pars0 )
+for( i in 1:(nrow( fit_sample )-2) ){
+  pars_long <- rbind ( pars_long, pars0 )
+}
+
+pars <- cbind( fit_sample_long, pars_long )
+
 library(parallel)
 num_cores <- detectCores()
 cl <- makeCluster( num_cores-1 )
-
-vacc_cov <- c( 0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
-rel_pep <- c( 0.1, 0.3, 0.5 )
-vacc_eff <- c( 0.3, 0.5, 0.7, 0.9 )
-delay_vacc <- c( 7, 14, 21, 28 )
-n_per_par <- 1
-pars <- data.frame( expand.grid( vacc_cov = vacc_cov, rel_pep = rel_pep, vacc_eff = vacc_eff, delay_vacc = delay_vacc ) )
-clusterExport( cl, c( "run_java_ibm", "run_ibm_simple" , "pars", "n_per_par" ) )
-res_cls <- parSapply( cl, 1:nrow(pars), 
+clusterExport( cl, c( "run_java_ibm", "run_ibm_simple", "pars" ) )
+res_cls <- parLapply( cl, 1:nrow(pars),
                       function(x) run_ibm_simple( 
-                         iter=n_per_par, 
-                         beta = 0.14405,
-                         delay_move = 1.2,
-                         shape_gamma_offspring = 0.2,
-                         under_vaccination_scenario = TRUE,
-                         vaccination_scenario = "Distance",
+                         iter=pars$n_per_par[ x ], 
+                         # beta = 0.1924,
+                         # delay_move = 1.2,
+                         beta = pars$beta[ x ],
+                         delay_move = pars$delay_move[ x ], 
+                         under_vaccination_scenario =  pars$under_vacc[ x ],
+                         vaccination_scenario = as.character( pars$vacc_scenario[ x ] ),
                          vacc_coverage = pars$vacc_cov[ x ],
                          vacc_eff = pars$vacc_eff[ x ],
                          rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
                          delay_vacc = pars$delay_vacc[ x ],
-                         vaccination_target_radius = 30,
-                         threshold_case_vacc = as.integer(5) , 
-                         threshold_day_vacc = as.integer(14) ) ) 
+                         vaccination_target_radius = pars$vacc_radius[ x ],
+                         threshold_case_vacc = pars$threshold_case_vacc[ x ] ,
+                         threshold_day_vacc = pars$threshold_day_vacc[ x ]
+                         ) ) 
 
 stopCluster( cl )
-filename <- paste0( "out/vacccov_relpop",format(Sys.time(), "%Y%m%dT%H%M%S"), ".rds")
-saveRDS( res_cls, filename )
+tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
+saveRDS( res_cls, paste0( "out/vacccov_relpop_", tstamp, ".rds") )
+saveRDS( pars, paste0( "out/pars_",tstamp, ".rds" ) )
+
+```
+
+#### parLapply test
+```{r}
+parLapply_test <- function(x) {
+  Sys.sleep(100)
+  tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
+  saveRDS( x, paste0( "out/parLapply_test_ind_", tstamp, ".rds") )
+  return(x)
+  
+}
+library(parallel)
+num_cores <- detectCores()
+cl <- makeCluster( num_cores-1 )
+clusterExport( cl, c( "parLapply_test") )
+res_cls <- parLapply( cl, 1:3, function(x) parLapply_test(x) )  
+
+stopCluster( cl )
+closeAllConnections()
+tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
+saveRDS( res_cls, paste0( "out/parLapply_test", tstamp, ".rds") )
+
+```
+
+### Ploting the results
+#### Statistics by individuals runs for a single paramter (beta and delay_move)
+```{r}
+
+
+## parameters explored
+# vacc_cov <- c( 0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
+# rel_pep <- c( 0.1, 0.3, 0.5 )
+# vacc_eff <- c( 0.3, 0.5, 0.7, 0.9 )
+# delay_vacc <- c( 7, 14, 21, 28 )
+# n_per_par <- 100
+# pars <- data.frame( expand.grid( vacc_cov = vacc_cov, rel_pep = rel_pep, vacc_eff = vacc_eff, delay_vacc = delay_vacc ) )
+res <- readRDS( "out/vaccscenario_thresholdcase_20181207T164825.rds" )
+# saveRDS( res_cls, paste0( "out/res_control_",tstamp, ".rds" ) )
+### Overall vaccine effectiveness
+library(tidyverse)
+## separate run required for contorl (no vaccination) -> res_Cls[[1]]
+ci_red <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - res[[x]]$cumul_symptom_onset / res_cls[[1]]$cumul_symptom_onset ) )
+case_averted_per_10000 <- sapply( 1:nrow(pars), function(x) 10000 * ( ( res_cls[[1]]$cumul_symptom_onset - res[[x]]$cumul_symptom_onset ) / res[[x]]$cumul_vacc_dose ) )
+pars_long <- pars %>% slice( rep(1:n(), each = n_per_par ) ) ## repeathe each parameter with 
+resdf <- cbind( pars_long, ci_red = as.vector(ci_red), case_averted_per_10000 = as.vector(case_averted_per_10000) )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(threshold_case_vacc), ci_red, fill=as.factor(vacc_scenario) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-100,100))+
+   labs( x="Vaccine trigger incidence", y="Reduction in outbreak size (%)") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+ggsave( "figs/vacc_cov_red_ind.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(threshold_case_vacc), case_averted_per_10000, fill=as.factor(vacc_scenario) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-50,50))+
+   labs( x="Vaccine trigger incidence", y="Case averted per 10,000 doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+ggsave( "figs/vacc_cov_case_ind.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+#### Statistics by median or mean of individuals runs acrosss estimated beta and delay_move
+```{r}
+res <- readRDS( "out/vaccscenario_thresholdcase_20181208T180504.rds" )
+pars <- readRDS( "out/pars_20181208T180504.rds" )
+res_control <- readRDS( "out/control_20181209T231219.rds" ) 
+# cumulative incidene under no vaccination for each set of beta and delay_move
+med_inc_control <- sapply( 1:length(res_control), function(x) median( res_control[[x]]$cumul_symptom_onset ) )
+n_set_other_par <- 15
+med_inc_control <- med_inc_control[ rep(seq_len(length(med_inc_control)), each=n_set_other_par) ]
+# overall vaccine effectiveness
+vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
+
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - median(res[[x]]$cumul_symptom_onset) / med_inc_control[x] ) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[x]]$cumul_vacc_dose ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( med_inc_control[x] - median( res[[x]]$cumul_symptom_onset )  )  / median( res[[x]]$cumul_vacc_dose ) ) ) #
+
+df <- data.frame( ove = ove, case_averted = case_averted, vacc = vacc )
+resdf <- cbind( pars, df )
+
+library(dplyr)
+ove_summary <- resdf %>% 
+  group_by( vacc_scenario, threshold_case_vacc ) %>% 
+  summarize( median = quantile( ove, probs=0.5 ),
+             lower = quantile( ove, probs=0.025 ),
+             upper = quantile( ove, probs=0.975 ) )
+vacc_summary <- resdf %>% 
+  group_by( vacc_scenario, threshold_case_vacc ) %>% 
+  summarize( median = quantile( vacc, probs=0.5 ),
+             lower = quantile( vacc, probs=0.025 ),
+             upper = quantile( vacc, probs=0.975 ) )
+
+caseaverted_summary <- resdf %>% 
+  group_by( vacc_scenario, threshold_case_vacc ) %>% 
+  summarize( median = quantile( case_averted, probs=0.5 ),
+             lower = quantile( case_averted, probs=0.025 ),
+             upper = quantile( case_averted, probs=0.975 ) )
+
+vacc_summary_out <- data.frame( vacc_scenario = vacc_summary$vacc_scenario,
+                                case_threshold = vacc_summary$threshold_case_vacc,
+                                vacc = sprintf( "%.1f (%.1f, %.1f)", 
+                                                vacc_summary$median, 
+                                                vacc_summary$lower, 
+                                                vacc_summary$upper ) )
+vacc_summary_out
+write.csv( ove_summary, "out/ove_summary.csv" )
+write.csv( vacc_summary_out, "out/vacc_summary_out.csv" )
+write.csv( caseaverted_summary, "out/caseaverted_summary.csv" )
+
+## plot variance of medican across parameter estimates
+library(ggplot2)
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(threshold_case_vacc), 
+                     ove, fill=as.factor(vacc_scenario) ), 
+                 position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-100,100) ) +
+  geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Incidence when vaccinnation started", y="Reduction in outbreak size (%)", 
+         fill = "Vaccination\nscenario" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) + 
+  annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+ggsave( "figs/vacc_cov_red_med_par_vary.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(threshold_case_vacc), case_averted, fill=as.factor(vacc_scenario) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-25,25)) +
+   labs( x="Incidence when vaccinnation started", y="Case averted per 10,000 doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) +
+  labs(fill='vaccination\nscenario')
+
+ggsave( "figs/vacc_cov_case_med_par_vary.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(threshold_case_vacc), 
+                     vacc, fill=as.factor(vacc_scenario) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Incidence when vaccinnation started", y="Number of Vaccine doses used", 
+         fill = "Vaccination\nscenario" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+ggsave( "figs/vacc_dose_med_par_vary.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
 ```
 
 ```{r}
@@ -521,51 +738,55 @@ ggplot( ci ) +
 
 ### Fitting offspring distribution 
 ```{r}
+library( dplyr )
 # offspring_list from the many runs
-# table(offspring_list[[4]])
+res_control <- readRDS( "out/control_20181209T231219.rds" )
+offspring_list <- lapply( 1:length(res_control), function(x) res_control[[x]]$offspring_list )
+offspring_list <- unlist( offspring_list, recursive = FALSE )
 freq <- data.frame()
 for( i in 1:length( offspring_list ) ){
-   d <- tbl_df(unlist(offspring_list[[i]]))
+   d <- tbl_df( unlist( offspring_list[[i]] ) )
    dd <- 
       d %>%
       group_by( value ) %>%
       summarise (n = n()) %>%
       mutate( freq = n / sum(n) )
    
-   freq <- rbind(freq,dd)
+   freq <- rbind( freq, dd )
 }
 
 dd_ <- freq %>% dplyr::select( value, freq )
 
-avg = rep( NA, 100 )
-sd = avg
-n = avg
+med <- rep( NA, 100 )
+lower <- upper <- n <- med
+
 for( i in 0:99 ){
    d = filter( dd_, value == i )
    n[i+1] = i
-   avg[i+1] = mean(d$freq)
-   sd[i+1] = sd(d$freq) 
+   med[i+1] = quantile( d$freq, probs=0.5 )
+   upper[i+1] = quantile( d$freq, probs=0.975 )
+   lower[i+1] = quantile( d$freq, probs=0.025 )
 }
-avg_sd = tbl_df( cbind( avg, sd ) )
+offspring_sim = tbl_df( cbind( med, upper, lower ) )
 
 dat_case = c( 0, 1, 2, 6, 11, 23, 28, 79 )
 dat_freq = c( 170, 7, 4, 1, 1, 1, 1, 1 ) / 186
 
 dat_offspring = data_frame( case = 0:80, freq=rep(NA,81) )
 dat_offspring[ dat_case+1, 2 ] = dat_freq
-
-ggplot( avg_sd ) + 
-   geom_errorbar( aes(x=n, ymin=avg+sd, ymax=avg-sd), position = 'dodge', width=0.25 ) +
-   geom_bar ( aes( n, avg ), stat = "identity" ) + 
-   xlim(-0.5,80) +
-   geom_point( data=dat_offspring, mapping = aes(case, freq), inherit.aes = FALSE, color="red") + 
-   labs( x="Offspring size", y="Relative frequency") + 
-   theme_classic() + 
-   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) + 
-   geom_rect( xmin = 70, xmax = 72, ymin = 0.8, ymax = 0.82,   fill = "grey30") +
-   geom_point( aes(71, 0.77), color="red", inherit.aes = FALSE ) + 
-   annotate( "text", x = 78, y = 0.82, label="model") + 
-   annotate( "text", x = 78, y = 0.77, label="data")  
+library( ggplot2 )
+ggplot( offspring_sim ) + 
+  geom_col( data=dat_offspring, mapping = aes(case, freq), inherit.aes = FALSE ) + 
+  labs( x="Offspring size", y="Relative frequency" ) + 
+  geom_errorbar( aes( x=n, ymin=lower, ymax=upper), position = 'dodge', width=0.25, color="red" ) +
+  geom_point ( aes( n, med ), stat = "identity", color="red", alpha=0.3 ) + 
+  xlim( -0.5, 80 ) +
+  theme_classic() + 
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) + 
+  geom_rect( xmin=68, xmax=70, ymin=0.8, ymax=0.82, fill="grey30") +
+  geom_point( aes(69, 0.77), color="red", inherit.aes = FALSE ) + 
+  annotate( "text", x = 76, y = 0.82, label="Data") + 
+  annotate( "text", x = 76, y = 0.77, label="Model")  
    
 # ggsave( "figs/offspring.png", width=3.4*1.2, height=2.5*1.2, units="in" )
 ```
@@ -581,7 +802,10 @@ library( maptools )
 library( ggplot2 )
 library( dplyr )
 library( viridis )
+source( util/mer)
 # Preparing the base Korean map
+source( "util/mers_ibm_funcs.R" )
+
 korea <- readOGR( dsn = path_Korea_shapefile, layer="KOR_adm1" )
 korea@data$id <- rownames( korea@data )
 korea_points <- broom::tidy( korea, region="id" )
@@ -599,15 +823,20 @@ d$Y_POS <- as.double( d$Y_POS )
 mers_hosp <- read_xlsx( "C:/Users/jongHoon.kim/Workspace/IVI_Projects/MERS/Data_Analysis/data/mers-cov_hospitals.xlsx" )
 # simulated hospitals
 ## save the data in case you want to the plot again
-sim_hosp <- data.frame( lon=unlist(longitude_affected_hospital_list),
-                        lat=unlist(latitude_affected_hospital_list) )
+res_control <- readRDS( "out/control_20181209T231219.rds" )
+lon <- sapply( 1:length(res_control), function(x) unlist(res_control[[x]]$longitude_affected_hospital_list) )
+               
+lat <- sapply( 1:length(res_control), function(x) unlist(res_control[[x]]$latitude_affected_hospital_list) )
+
+sim_hosp <- data.frame( lon=unlist(lon), lat=unlist(lat) )
 
 ggplot( data = korea_df ) + 
   geom_polygon( aes(x=long, y=lat, group=group ), fill=NA, color = "black" ) +
   expand_limits( x = korea_df$long, y=korea_df$lat ) + 
-  geom_point( data=d, aes(x=X_POS, y=Y_POS), shape=16, size=log10(d$POP_RISK), alpha=0.1, color="grey", inherit.aes=FALSE ) + 
-  geom_point( data=mers_hosp, aes(x=X, y=Y), shape=16, size=3, alpha=0.4, color="red", inherit.aes=FALSE ) + 
-  # geom_point( data=sim_hosp, aes(x=lon, y=lat), shape=16, size=3, alpha=0.4, color="royalblue", inherit.aes=FALSE ) + 
+  # geom_point( data=d, aes(x=X_POS, y=Y_POS), shape=16, size=log10(d$POP_RISK), alpha=0.1, color="grey", inherit.aes=FALSE ) + 
+  geom_point( data=sim_hosp, aes(x=lon, y=lat), shape=16, size=3, alpha=0.005, color="red", inherit.aes=FALSE ) +
+  geom_point( data=mers_hosp, aes(x=X, y=Y), shape=16, size=3, color="royalblue", alpha=0.25, inherit.aes=FALSE ) + 
+ 
   theme( 
         panel.background = element_blank(), # bg of the panel
         plot.background = element_blank(), # bg of the plot
@@ -626,7 +855,7 @@ ggplot( data = korea_df ) +
         panel.grid.minor = element_blank(),
         legend.position = c( 0.2, 0.3 ) ) 
 
- # ggsave( "figs/hosp_mers_map_data.png" )
+ ggsave( "figs/hosp_mers_map_data.png" )
 ```
 
 ### Many runs by setting parameter values manually

@@ -118,8 +118,8 @@ quantile( chain_burnin$val, probs=c(0.025,0.5,0.975) )
 ```{r}
 run_ibm_abc <- function( theta ){
    # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Transmission_Modeling/data/mers_symptom_onset_data.R" )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Transmission_Modeling/util/mers_ibm_funcs.R" )
+   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R" )
+   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )
    dat <- dat_symptom_onset_daily
    num_hospital_infected_observed = 14
    offspring_var_mean_ratio_observed = 51.769
@@ -172,8 +172,8 @@ run_ibm_abc <- function( theta ){
 ```{r}
 run_ibm_abc_cls <- function( theta ){
    # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Transmission_Modeling/data/mers_symptom_onset_data.R" )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Transmission_Modeling/util/mers_ibm_funcs.R" )
+   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R" )
+   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )
    dat <- dat_symptom_onset_daily
    num_hospital_infected_observed = 14
    offspring_var_mean_ratio_observed = 51.769

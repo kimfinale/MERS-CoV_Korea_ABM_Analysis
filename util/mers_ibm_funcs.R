@@ -1,11 +1,81 @@
 
-##input_data 
-path_java_class <- "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/java/MERS-CoV_Korea_ABM/MERS_Korea_IBM"
-path_commons_math <- "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-math3-3.6.1.jar"
-path_commons_lang <- "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-lang3-3.8.jar"
+##input_data
+## easy to export (for parallel learing) once wrapped into a single function
+path_java_home <- "C:/Program Files/Java/jdk-11.0.1/"
+path_java_class <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/java/MERS-CoV_Korea_ABM/MERS_Korea_IBM"
+path_commons_math <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-math3-3.6.1.jar"
+path_commons_lang <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-lang3-3.8.jar"
+path_symptom_onset_data <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R"
+path_Korea_shapefile <-"C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/Data_Analysis/data/KOR_adm"
+path_util_func <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R"
 
-path_symptom_onset_data <- "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R"
-path_Korea_shapefile <-"C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/Data_Analysis/data/KOR_adm"
+
+par_dataframe <- function( numruns = 1, 
+          stepsize = 0.2, 
+          stoptime = 60, 
+          beta = 0.35, 
+          frac_highrisk = 22/185, 
+          factor_highrisk = 7.9/0.1, 
+          shape_gamma_offspring = 0.2, 
+          hospital_search_radius = 30,
+          delay_move = 2,
+          outbreak_scenario = "2015",
+          under_vaccination_scenario = FALSE,
+          vaccination_scenario = "Distance",
+          vacc_coverage = 0.9,
+          vaccination_target_radius = 30,
+          vacc_eff = 0.7,
+          rel_vacc_eff_post_exposure = 0.5,
+          delay_vacc = 14,
+          threshold_case_vacc = 5,
+          threshold_day_vacc = 10,
+          random_seed = 0 ){
+  
+  df <- data.frame(
+    par= c(  "numruns", 
+  "stepsize", 
+  "stoptime" , 
+  "beta"  , 
+  "frac_highrisk", 
+  "factor_highrisk", 
+  "shape_gamma_offspring", 
+  "hospital_search_radius",
+  "delay_move",
+  "outbreak_scenario",
+  "under_vaccination_scenario",
+  "vaccination_scenario",
+  "vacc_coverage",
+  "vaccination_target_radius",
+  "vacc_eff",
+  "rel_vacc_eff_post_exposure",
+  "delay_vacc",
+  "threshold_case_vacc",
+  "threshold_day_vacc",
+  "random_seed" ), 
+  val = c( numruns, 
+           stepsize,
+           stoptime, 
+           beta, 
+           frac_highrisk, 
+           factor_highrisk, 
+           shape_gamma_offspring, 
+           hospital_search_radius,
+           delay_move,
+           outbreak_scenario,
+           under_vaccination_scenario,
+           vaccination_scenario,
+           vacc_coverage,
+           vaccination_target_radius,
+           vacc_eff,
+           rel_vacc_eff_post_exposure,
+           delay_vacc,
+           threshold_case_vacc,
+           threshold_day_vacc,
+           random_seed  ), stringsAsFactors = FALSE )
+  
+  return( df )
+}
+
 
 run_java_ibm <- function( numruns = 1, 
                           stepsize = 0.2, 
@@ -19,8 +89,8 @@ run_java_ibm <- function( numruns = 1,
                           outbreak_scenario = "2015",
                           under_vaccination_scenario = FALSE,
                           vaccination_scenario = "Distance",
-                          vacc_coverage = 0.95,
-                          vaccination_target_radius = 60,
+                          vacc_coverage = 0.9,
+                          vaccination_target_radius = 30,
                           vacc_eff = 0.7,
                           rel_vacc_eff_post_exposure = 0.5,
                           delay_vacc = 14,
@@ -32,9 +102,9 @@ run_java_ibm <- function( numruns = 1,
    Sys.setenv( JAVA_HOME = "C:/Program Files/Java/jdk-11.0.1/" )
    library( rJava )
    .jinit()
-   .jaddClassPath( path_java_class )
-   .jaddClassPath( path_commons_math )
-   .jaddClassPath( path_commons_lang )
+   .jaddClassPath( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/java/MERS-CoV_Korea_ABM/MERS_Korea_IBM" )
+   .jaddClassPath( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-math3-3.6.1.jar" )
+   .jaddClassPath( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-lang3-3.8.jar" )
    # output containers
    daily_symptom_onset = matrix( NA, nrow=numruns, ncol=stoptime ) # store sim res of the ibm
    cumul_symptom_onset = matrix( NA, nrow=numruns, ncol=stoptime) # store sim res of the ibm
@@ -116,9 +186,7 @@ run_java_ibm <- function( numruns = 1,
 ## returns the only the final values of outbreak size, vaccine doses, ect
 ## over iteration
 run_ibm_simple <- function( iter=1, ... ){
-   # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
-   source( "data/mers_symptom_onset_data.R" )
-   source( "util/mers_ibm_funcs.R" )  # run_java_ibm function is needed
+   source( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )  # run_java_ibm function is needed
    # cat( "beta=", beta,"\n" )
    list <- list() 
    for( i in 1:iter ){
