@@ -121,10 +121,7 @@ run_java_ibm <- function( stepsize = 0.2,
    latitude_affected_hospital_list = list()
    
     pars <- .jnew( "Parameters" )
-    if( !is.null(random_seed) ){
-       .jcall( pars, "V", "setRandomSeed", as.integer( random_seed ) )
-       # cat( "random seed is being set to", random_seed, "\n" )
-    }
+    .jcall( pars, "V", "setRandomSeed", as.integer( random_seed ) )
     .jcall( pars, "V", "setStepSize", stepsize )
     .jcall( pars, "V", "setStopTime", stoptime )
     .jcall( pars, "V", "setRateTransmit", beta )

@@ -50,8 +50,45 @@ ggplot( df3_long ) +
 
 ```
 
+### Baseline simulations
+```{r}
+source( "util/mers_ibm_funcs.R" )
+library( dplyr )
+fit <- readRDS( "out/pars_20181208T180504.rds" ) ## 30 out of 100 parameter sets  from ABC
+fit_sample <- data.frame( beta = unique(fit$beta)[1:10], 
+                          delay_move = unique(fit$delay_move)[1:10] )
 
-### Simulation based on ABC estimates
+under_vacc <- FALSE
+n_per_par <- 100
+pars0 <- data.frame( expand.grid( under_Vacc = under_vacc,
+                                  n_per_par = n_per_par ) )
+fit_sample_long <- fit_sample %>% slice( rep( 1:n(), each = nrow(pars0) ) )
+
+pars_long <- pars0
+for( i in 1:(nrow( fit_sample )-1) ){
+  pars_long <- rbind ( pars_long, pars0 )
+}
+pars <- cbind( fit_sample_long, pars_long )
+
+library( parallel )
+num_cores <- detectCores()
+cl <- makeCluster( num_cores-1 )
+clusterExport( cl, c( "run_java_ibm", "run_ibm_simple", "pars" ) )
+
+res_cls <- parLapply( cl, 1:nrow(pars),
+                      function(x) run_ibm_simple( 
+                        iter = pars$n_per_par[ x ], 
+                        beta = pars$beta[ x ],
+                        delay_move = pars$delay_move[ x ], 
+                        under_vaccination_scenario = pars$under_Vacc[ x ] ) ) 
+
+stopCluster( cl )
+# tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
+# saveRDS( res_cls, paste0( "out/vacccov_relpop_", tstamp, ".rds") )
+# saveRDS( pars, paste0( "out/pars_",tstamp, ".rds" ) )
+```
+
+#### Simulation based on ABC estimates
 ```{r message=FALSE, warning=FALSE, paged.print=FALSE}
 source( "util/mers_ibm_funcs.R" )
 runs <- length( abc$param[,1] ) # number of runs for each parameter set
@@ -586,8 +623,8 @@ ggsave( "figs/vacc_cov_case_ind.png", width=3.4*1.5, height=2.5*1.5, units="in" 
 ##### Vaccince coverage and relative efficacy of post-exposure protection 
 ```{r}
 ## 30 parametrer sets and 30 runs per parameter set 
-res <- readRDS( "out/vacccov_relpop_20181212T090546.rds" )
-pars <- readRDS( "out/pars_20181212T090546.rds" )
+res <- readRDS( "out/vacccov_vacceff_20181212T175130.rds" )
+pars <- readRDS( "out/pars_20181212T175130.rds" )
 
 index_Vacc_zero <- seq( 1, nrow(pars), by=6 ) # 6 comes from 0,0,1,0.3,...0,9
 ci_vacc_zero_list <- lapply( index_Vacc_zero, function(x) matrix( rep(res[[x]]$cumul_symptom_onset, 6), nrow=length(res[[x]]$cumul_symptom_onset) ) )
@@ -595,7 +632,6 @@ ci_control <- ci_vacc_zero_list[[1]];
 for( i in 2:length(ci_vacc_zero_list) ) {
   ci_control <- cbind( ci_control, ci_vacc_zero_list[[i]] )
 }
-
 # overall vaccine effectiveness
 # vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
 ci <- sapply( 1:nrow(pars), function(x)  res[[ x ]]$cumul_symptom_onset )
@@ -607,8 +643,8 @@ df <- data.frame( ci=as.vector(t(ci)),
                   vacc = as.vector(t(vacc)),
                   ove = as.vector(t(ove)),
                   case_averted = as.vector(t(case_averted)) )
-iter <- 30 ## iterations acorss different random seeds during simulation
-pars <- do.call( rbind, replicate( 30, pars, simplify=FALSE) ) 
+iter <- length( res[[1]]$cumul_symptom_onset ) ## iterations acorss different random seeds during simulation
+pars <- do.call( rbind, replicate( iter, pars, simplify=FALSE) ) 
 resdf <-  cbind( pars, df )
 
 ## plot variance of medican across parameter estimates
@@ -636,7 +672,7 @@ ggplot( resdf ) +
    theme_classic() +
    theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
 
-ggsave( "figs/vacccov_caseaverted.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# ggsave( "figs/vacccov_caseaverted.png", width=3.4*1.5, height=2.5*1.5, units="in" )
 
 ggplot( resdf ) +
   geom_boxplot( aes(as.factor(100*vacc_cov), 
@@ -647,16 +683,16 @@ ggplot( resdf ) +
   theme_classic() +
   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
    
-ggsave( "figs/vacccov_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# ggsave( "figs/vacccov_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
 
 ```
 
 #### Statistics by median or mean of individuals runs acrosss estimated beta and delay_move
-##### Vaccince coverage and relative efficacy of PEP 
+##### Vaccince coverage and relative efficacy of post-exposure protection 
 ```{r}
 ## 30 parametrer sets and 30 runs per parameter set 
-res <- readRDS( "out/vacccov_relpop_20181212T090546.rds" )
-pars <- readRDS( "out/pars_20181212T090546.rds" )
+res <- readRDS( "out/vacccov_vacceff_20181212T175130.rds" )
+pars <- readRDS( "out/pars_20181212T175130.rds" )
 
 index_Vacc_zero <- seq( 1, nrow(pars), by=6 ) # 6 comes from 0,0,1,0.3,...0,9
 ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
@@ -673,7 +709,7 @@ resdf <-  cbind( pars, df )
 
 ## plot variance of medican across parameter estimates
 library(tidyverse)
-ggplot( filter( resdf, rel_pep == 0.1 ) ) +
+ggplot( resdf ) +
   geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(100*vacc_eff) ),
                 position = position_dodge(width = .6) ) +
   coord_cartesian( ylim=c(-100,100) ) +
@@ -696,7 +732,7 @@ ggplot( resdf ) +
    theme_classic() +
    theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
 
-ggsave( "figs/vacccov_caseaverted.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# ggsave( "figs/vacccov_caseaverted.png", width=3.4*1.5, height=2.5*1.5, units="in" )
 
 ggplot( resdf ) +
   geom_boxplot( aes(as.factor(100*vacc_cov), 
@@ -707,7 +743,7 @@ ggplot( resdf ) +
   theme_classic() +
   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
    
-ggsave( "figs/vacccov_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# ggsave( "figs/vacccov_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
 
 ```
 
