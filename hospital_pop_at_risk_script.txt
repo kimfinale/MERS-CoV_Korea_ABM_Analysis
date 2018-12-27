@@ -1,0 +1,38 @@
+# encoding = "utf-8"
+# Sys.setlocale("LC_CTYPE", "korean")
+Sys.setlocale("LC_ALL", 'korean') # to read Korean letters from the data file
+
+library("tidyverse")
+library("readxl")
+
+doc <- read_xlsx( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/Data_Analysis/data/doctors.xlsx" )
+coord <- read_xlsx( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/Data_Analysis/data/coordinates.xlsx" )
+bed <- read_xlsx( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/Data_Analysis/data/sickbeds.xlsx" )
+
+# choose hospitals where MERS-CoV patients may go to
+unique( coord$CL_CD_NM )
+coord_lg <- filter( coord,  CL_CD_NM %in% c("??????","??????", "????????????","????????????") )
+doc_lg <- filter( doc, YKIHO_ENC %in% coord_lg$YKIHO_ENC ) # looks like a unique identifier
+## select departments that are at high-risk of MERS-CoV transmission
+doc_lg_d <- filter( doc_lg, DGSBJT_CD_NM %in% c( "??????","???????????????", "????????????", "?????????????????????", "???????????????", "?????????????????????") ) 
+doc_lg_d_cnt <- doc_lg_d %>% 
+   group_by( YKIHO_ENC, YADM_NM ) %>% 
+   summarise( num_doc = sum(DGSBJT_PR_SDR_CNT) ) # number of doctotrs
+   
+doc_lg_d_cnt_0 <- filter( doc_lg_d_cnt, num_doc > 0 )
+
+
+nurse_per_doc <- 6.91 / 2.34  ## based on data (number of doctors [nurses] per 1000 in 2017 = 2.34 [6.91])
+
+d <- left_join( doc_lg_d_cnt_0, coord_lg, by = "YKIHO_ENC" )
+d_nurse <- mutate( d, 
+                  nurse = num_doc * nurse_per_doc, 
+                  pop_risk = (num_doc + nurse ) / 0.14,
+                  region_id = ifelse( SIDO_CD_NM=="??????", 0, ifelse( SIDO_CD_NM=="??????", 1, ifelse( SIDO_CD_NM=="??????", 2, ifelse( SIDO_CD_NM=="??????", 3, ifelse( SIDO_CD_NM=="??????", 4, ifelse( SIDO_CD_NM=="??????", 5, ifelse( SIDO_CD_NM=="??????", 6, ifelse( SIDO_CD_NM=="??????", 7, ifelse( SIDO_CD_NM=="??????", 8, ifelse( SIDO_CD_NM=="?????????", 9, ifelse( SIDO_CD_NM=="??????", 10, ifelse( SIDO_CD_NM=="??????", 11, ifelse( SIDO_CD_NM=="??????", 12, ifelse( SIDO_CD_NM=="??????", 13, ifelse( SIDO_CD_NM=="??????", 14, ifelse( SIDO_CD_NM=="??????", 15, 16 )))))))))))))))), 
+                  level =  ifelse( CL_CD_NM=="??????", 1, ifelse( CL_CD_NM=="??????" , 2, ifelse( CL_CD_NM=="????????????", 3, 4))) )
+	# // 0=Gangwon, 1=Gyeonggi, 2=Gyeongnam,
+	# // 3=Gyeongbuk, 4=Gwangju, 5=Daegu,
+	# // 6=Daejeon, 7=Busan, 8=Seoul,
+	# // 9=Sejong City, 10=Ulsan, 11=Incheon, 12=Jeonnam, 13=Jeonbuk,
+	# // 14=Jeju, 15=Chungnam, 16=Chungbuk
+d_nurse <- dplyr::select( d_nurse, pop_risk, level, region_id, X_POS, Y_POS )

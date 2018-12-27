@@ -366,7 +366,6 @@ threshold_case_vacc <- c( 1, 3, 5, 7, 9 )
 threshold_day_vacc <- 21
 vacc_radius <- 30
 vacc_cov <- c( 0.0, 0.1, 0.3, 0.5, 0.7, 0.9 )
-# vacc_cov <- c( 0.0, 0.9 )
 rel_pep <- c( 0.5 )
 vacc_eff <- c( 0.7 )
 delay_vacc <- c( 7 )
@@ -441,7 +440,6 @@ res_cls <- pblapply( 1:nrow(pars),
                          dur_vaccination = pars$dur_vacc[ x ]
                          ), cl=cl )
 
-
 stopCluster( cl )
 tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
 saveRDS( res_cls, paste0( "out/thresholdcase_par16_", tstamp, ".rds") )
@@ -461,8 +459,6 @@ library( dplyr )
 fit <- readRDS( "out/beta_delaymove_20181216T235939.rds" )
 fit_sample <- data.frame( beta = fit$param[,1][10],
                           delay_move = fit$param[,2][10] )
-# fit_sample <- data.frame( beta = 0.19, 
-#                           delay_move = 1.69 )
 threshold_case_vacc <- 1
 threshold_day_vacc <- 14
 vacc_radius <- 30
@@ -507,29 +503,27 @@ library(parallel)
 num_cores <- detectCores()
 cl <- makeCluster( num_cores-1 )
 clusterExport( cl, c( "run_java_ibm", "run_ibm_simple", "pars" ) )
-# res_cls <- parLapply( cl, 1:nrow(pars),
-#                       function(x) run_ibm_simple( 
-#                          iter=pars$n_per_par[ x ], 
-#                          # beta = 0.1924,
-#                          # delay_move = 1.2,
-#                          beta = pars$beta[ x ],
-#                          delay_move = pars$delay_move[ x ], 
-#                          under_vaccination_scenario =  pars$under_vacc[ x ],
-#                          vaccination_scenario = as.character( pars$vacc_scenario[ x ] ),
-#                          vacc_coverage = pars$vacc_cov[ x ],
-#                          vacc_efficacy = pars$vacc_eff[ x ],
-#                          rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
-#                          delay_vacc = pars$delay_vacc[ x ],
-#                          vaccination_target_radius = pars$vacc_radius[ x ],
-#                          threshold_case_vacc = pars$threshold_case_vacc[ x ] ,
-#                          threshold_day_vacc = pars$threshold_day_vacc[ x ],
-#                          dur_vaccination = pars$dur_vacc[ x ]
-#                          ) ) 
 
+res_cls <- parLapply( cl, 1:nrow(pars),
+                      function(x) run_ibm_simple(
+                         iter = pars$n_per_par[ x ],
+                         beta = pars$beta[ x ],
+                         delay_move = pars$delay_move[ x ],
+                         under_vaccination_scenario =  pars$under_vacc[ x ],
+                         vaccination_scenario = as.character( pars$vacc_scenario[ x ] ),
+                         vacc_coverage = pars$vacc_cov[ x ],
+                         vacc_efficacy = pars$vacc_eff[ x ],
+                         rel_vacc_eff_post_exposure = pars$rel_pep[ x ],
+                         delay_vacc = pars$delay_vacc[ x ],
+                         vaccination_target_radius = pars$vacc_radius[ x ],
+                         threshold_case_vacc = pars$threshold_case_vacc[ x ] ,
+                         threshold_day_vacc = pars$threshold_day_vacc[ x ],
+                         dur_vaccination = pars$dur_vacc[ x ]
+                         ) )
 
 stopCluster( cl )
 tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
-saveRDS( res_cls, paste0( "out/vacccov_relpop_", tstamp, ".rds") )
+saveRDS( res_cls, paste0( "out/vacccov_vacceff_", tstamp, ".rds") )
 saveRDS( pars, paste0( "out/pars_",tstamp, ".rds" ) )
 Sys.time()-tbegin
 
