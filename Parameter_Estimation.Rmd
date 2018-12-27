@@ -827,8 +827,7 @@ ggplot( d ) +
 
 
 #### Time to extinction
-
-# 
+ 
 ls_vacc = lapply( 1:length(index), function(x) mat[ , index[[x]] ] )
 
 find_day_extinct = function( mat=NULL ){

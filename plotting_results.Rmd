@@ -1,0 +1,1104 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+chunk_output_type: console
+---
+
+### Statistics by individuals runs for a single paramter (beta and delay_move)
+```{r}
+## parameters explored
+# vacc_cov <- c( 0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 )
+# rel_pep <- c( 0.1, 0.3, 0.5 )
+# vacc_eff <- c( 0.3, 0.5, 0.7, 0.9 )
+# delay_vacc <- c( 7, 14, 21, 28 )
+# n_per_par <- 100
+# pars <- data.frame( expand.grid( vacc_cov = vacc_cov, rel_pep = rel_pep, vacc_eff = vacc_eff, delay_vacc = delay_vacc ) )
+res <- readRDS( "out/vaccscenario_thresholdcase_20181207T164825.rds" )
+# saveRDS( res_cls, paste0( "out/res_control_",tstamp, ".rds" ) )
+### Overall vaccine effectiveness
+library(tidyverse)
+## separate run required for contorl (no vaccination) -> res_Cls[[1]]
+ci_red <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - res[[x]]$cumul_symptom_onset / res_cls[[1]]$cumul_symptom_onset ) )
+case_averted_per_10000 <- sapply( 1:nrow(pars), function(x) 10000 * ( ( res_cls[[1]]$cumul_symptom_onset - res[[x]]$cumul_symptom_onset ) / res[[x]]$cumul_vacc_dose ) )
+pars_long <- pars %>% slice( rep(1:n(), each = n_per_par ) ) ## repeathe each parameter with 
+resdf <- cbind( pars_long, ci_red = as.vector(ci_red), case_averted_per_10000 = as.vector(case_averted_per_10000) )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(threshold_case_vacc), ci_red, fill=as.factor(vacc_scenario) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-100,100))+
+   labs( x="Vaccine trigger incidence", y="Reduction in outbreak size (%)") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+ggsave( "figs/vacc_cov_red_ind.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(threshold_case_vacc), case_averted_per_10000, fill=as.factor(vacc_scenario) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-50,50))+
+   labs( x="Vaccine trigger incidence", y="Case averted per 10,000 doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+ggsave( "figs/vacc_cov_case_ind.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+#### Vaccince coverage and relative efficacy of post-exposure protection 
+```{r}
+## 30 parametrer sets and 30 runs per parameter set 
+res <- readRDS( "out/vacccov_relpop_20181218T214908.rds" )
+pars <- readRDS( "out/pars_20181218T214908.rds" )
+
+cycle <- 6 # vaccine coverage repeats every cycleth row
+index_Vacc_zero <- seq( 1, nrow(pars), by = cycle ) # 6 comes from 0,0,1,0.3,...0,9
+ci_vacc_zero_list <- lapply( index_Vacc_zero, function(x) matrix( rep(res[[x]]$cumul_symptom_onset, cycle), nrow=length(res[[x]]$cumul_symptom_onset) ) )
+ci_control <- ci_vacc_zero_list[[1]]; 
+for( i in 2:length(ci_vacc_zero_list) ) {
+  ci_control <- cbind( ci_control, ci_vacc_zero_list[[i]] )
+}
+# overall vaccine effectiveness
+# vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
+ci <- sapply( 1:nrow(pars), function(x)  res[[ x ]]$cumul_symptom_onset )
+vacc <- sapply( 1:nrow(pars), function(x) res[[ x ]]$cumul_vacc_dose )  
+ove <- 100 * ( 1 - ci / ci_control )
+case_averted <- 10000 * ( ci_control - ci )  / vacc
+
+df <- data.frame( ci=as.vector(t(ci)), 
+                  vacc = as.vector(t(vacc)),
+                  ove = as.vector(t(ove)),
+                  case_averted = as.vector(t(case_averted)) )
+iter <- length( res[[1]]$cumul_symptom_onset ) ## iterations acorss different random seeds during simulation
+pars <- do.call( rbind, replicate( iter, pars, simplify=FALSE) ) 
+
+resdf <-  cbind( pars, df )
+
+# resdf <- filter( resdf, threshold_case_vacc==1, dur_vacc==2, delay_vacc == 14)
+
+
+# plot variance of medican across parameter estimates
+library(tidyverse)
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-100,100) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+# ggsave( "figs/vacccov_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(100*vacc_eff) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-30,40)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Vaccine\nefficacy (%)" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+
+# ggsave( "figs/vacccov_caseaverted.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+# ggsave( "figs/vacccov_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+### Statistics by median or mean of individuals runs acrosss estimated beta and delay_move
+#### Vaccince coverage and relative efficacy of post-exposure protection 
+```{r}
+res <- readRDS( "out/vacccov_relpop_par1-20_20181226T174800.rds" )
+pars <- readRDS( "out/pars_par1-20_20181226T174800.rds" )
+
+# pars <- do.call( rbind, list(pars1, pars2, pars3) )
+# res <- do.call( c, list(res1, res2, res3) )
+# saveRDS( res, "out/vacccov_relpop_par1-20_20181226T174800.rds" )
+
+cycle <- 6 # 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+dur_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$dur_outbreak ) )
+dur_control <- dur_control[ rep( 1:length( dur_control ), each=cycle ) ]
+num_hospital_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$num_hospital_infected ) )
+num_hospital_control <- num_hospital_control[ rep( 1:length( num_hospital_control ), each=cycle ) ]
+
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset) )
+dur <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$dur_outbreak ) )
+num_hospital <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$num_hospital_infected ) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+ove_dur <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - dur[ x ] / dur_control[ x ] ) )
+
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+ove_hospital <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - num_hospital[ x ] / num_hospital_control[ x ] ) )
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, dur = dur, ove_dur = ove_dur, 
+                  case_averted = case_averted,
+                  num_hospital = num_hospital, ove_hospital = ove_hospital )
+
+resdf <-  cbind( pars, df )
+
+resdf <- resdf[ resdf$rel_pep==0.5, ]
+## plot variance of medican across parameter estimates
+library(tidyverse)
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(100*rel_pop) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Post-exposure\nprotection (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_vacceff_inc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(100*rel_pep) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Post-exposure\nprotection (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+# ggsave( "figs/vacccov_outbreaksize_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), dur, fill=as.factor(100*rel_pep) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Outbreak duration", 
+         fill = "Post-exposure\nprotection (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_dur_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(100*rel_pep) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak duration (%)", 
+         fill = "Post-exposure\nprotection (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+# ggsave( "figs/vacccov_dur_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(100*rel_pep) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-30,40)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Post-exposure\nprotection (%)" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+          panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+# ggsave( "figs/vacccov_caseaverted_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(100*rel_pep) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" ))
+   
+# ggsave( "figs/vacccov_vaccdose_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+## 
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     num_hospital, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of affected hospitals", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+# ggsave( "figs/vacccov_vacceff_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+#### Vaccince coverage and isolation rate 
+```{r}
+## 30 parametrer sets and 200 runs per parameter set 
+res1 <- readRDS( "out/isolation_vacccov_20181225T202552_par1.rds" )
+res2 <- readRDS( "out/isolation_vacccov_20181225T214951_par2-6.rds" )
+pars1 <- readRDS( "out/pars_20181225T202552.rds" )
+pars2 <- readRDS( "out/pars_20181225T214951.rds" )
+
+pars <- do.call( rbind, list(pars1, pars2) )
+res <- do.call( c, list(res1, res2) )
+
+pars_2400 <- pars[ seq(1,72,2), ]
+pars_4259 <- pars[ seq(2,72,2), ]
+pars <- do.call( rbind, list(pars_2400, pars_4259) )
+res_2400 <- lapply( seq(1,72,2), function(x) res[[x]] )
+res_4259 <- lapply( seq(2,72,2), function(x) res[[x]] )
+res <- do.call( c, list(res_2400, res_4259) )
+
+cycle <- 6 # 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+dur_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$dur_outbreak ) )
+dur_control <- dur_control[ rep( 1:length( dur_control ), each=cycle ) ]
+num_hospital_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$num_hospital_infected ) )
+num_hospital_control <- num_hospital_control[ rep( 1:length( num_hospital_control ), each=cycle ) ]
+
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset) )
+dur <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$dur_outbreak ) )
+num_hospital <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$num_hospital_infected ) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+ove_dur <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - dur[ x ] / dur_control[ x ] ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+ove_hospital <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - num_hospital[ x ] / num_hospital_control[ x ] ) )
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, dur = dur, ove_dur = ove_dur, 
+                  case_averted = case_averted,
+                  num_hospital = num_hospital, ove_hospital = ove_hospital )
+
+resdf <-  cbind( pars, df )
+
+# resdf <- resdf[ resdf$vacc_scenario=="Distance", ]
+## plot variance of medican across parameter estimates
+library(tidyverse)
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(meantime_isolation_middle) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,750) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Isolation rate" ) +
+    scale_fill_manual(labels = c("Baseline", "Slow"), values = c("#F8766D", "#00BFC4")) + 
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_inc_isolation.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(meantime_isolation_middle) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Isolation rate" ) +
+  scale_fill_manual(labels = c("Baseline", "Slow"), values = c("#F8766D", "#00BFC4")) + 
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+# ggsave( "figs/vacccov_outbreaksize_isolationrate.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), dur, fill=as.factor(meantime_isolation_middle) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Outbreak duration", 
+         fill = "Isolation rate" ) +
+  scale_fill_manual(labels = c("Baseline", "Slow"), values = c("#F8766D", "#00BFC4")) + 
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_dur_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(meantime_isolation_middle) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  scale_fill_manual(labels = c("Baseline", "Slow"), values = c("#F8766D", "#00BFC4")) + 
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak duration (%)", 
+         fill = "Isolation rate" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+# ggsave( "figs/vacccov_dur_isolation.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(meantime_isolation_middle) ),
+                 position = position_dodge(width = .6) ) + 
+   # coord_cartesian(ylim=c(-30,40)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Isolation rate" ) +
+  scale_fill_manual(labels = c("Baseline", "Slow"), values = c("#F8766D", "#00BFC4")) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+          panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+# ggsave( "figs/vacccov_caseaverted_isolation.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(meantime_isolation_middle) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" ))
+   
+# ggsave( "figs/vacccov_vaccdose_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+## 
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     num_hospital, fill=as.factor(meantime_isolation_middle) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of affected hospitals", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+# ggsave( "figs/vacccov_vacceff_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+
+#### Vaccination scenario 
+```{r}
+## 30 parametrer sets and 200 runs per parameter set 
+res <- readRDS( "out/vacccov_relpop_20181219T190631.rds" )
+res <- readRDS( "out/vacccov_relpop_par1-20_20181226T174800.rds")
+pars <- readRDS( "out/pars_par1-20_20181226T174800.rds")
+pars <- readRDS( "out/pars_20181219T190631.rds" )
+
+cycle <- 6# 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+# overall vaccine effectiveness
+# vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, case_averted = case_averted)
+
+resdf <-  cbind( pars, df )
+
+# resdf <- dplyr::filter( resdf, vacc_eff == 0.3 )
+resdf <- resdf[ resdf$vacc_eff==0.7, ]
+## plot variance of medican across parameter estimates
+library(ggplot2)
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(vacc_scenario) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Vaccination\nscenario" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+ggsave( "figs/vacccov_inc_vaccscenario_ve07.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(vacc_scenario) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Vaccination\nscenario" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ), 
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+ggsave( "figs/vacccov_outbreaksize_vaccscenario_ve07.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(vacc_scenario) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-30,70)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Vaccination\nscenario" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+
+ggsave( "figs/vacccov_caseaverted_vaccscenario_ve07.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(vacc_scenario) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccination\nscenario" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+ggsave( "figs/vacccov_vaccdose_vaccscenario_ve07.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+
+
+#### Importation we need to account for whether vaccination occurred or not
+```{r}
+## 30 parametrer sets and 200 runs per parameter set 
+res <- readRDS( "out/importation_vacccov_20181221T000028.rds" )
+pars <- readRDS( "out/pars_20181221T000028.rds" )
+
+cycle <- 6# 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset[ which(res[[x]]$vacc_day_adjusted==1) ] ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+
+dur_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$dur_outbreak[ which(res[[x]]$vacc_day_adjusted==1) ] ) )
+dur_control <- dur_control[ rep( 1:length( dur_control ), each=cycle ) ]
+
+num_hospital_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$num_hospital_infected[ which(res[[x]]$vacc_day_adjusted==1) ] ) )
+num_hospital_control <- num_hospital_control[ rep( 1:length( num_hospital_control ), each=cycle ) ]
+
+# overall vaccine effectiveness
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset[ which(res[[x]]$vacc_day_adjusted==1) ]) )
+dur <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$dur_outbreak[ which(res[[x]]$vacc_day_adjusted==1) ] ) )
+num_hospital <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$num_hospital_infected[ which(res[[x]]$vacc_day_adjusted==1) ] ) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose[ which(res[[x]]$vacc_day_adjusted==1) ] ) )  
+
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+ove_dur <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - dur[ x ] / dur_control[ x ] ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+ove_hospital <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - num_hospital[ x ] / num_hospital_control[ x ] ) )
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, case_averted = case_averted,
+                  num_hospital = num_hospital, ove_hospital = ove_hospital )
+
+resdf <-  cbind( pars, df )
+
+resdf <- resdf[ resdf$vacc_scenario=="Distance", ]
+## plot variance of medican across parameter estimates
+library(tidyverse)
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,2000) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_vacceff_inc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+ggsave( "figs/importation_vacccov_outbreaksize.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), dur, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Outbreak duration", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_vacceff_inc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-20,20) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak duration (%)", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+ggsave( "figs/outbreakdur_importation_vacccov.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(100*vacc_eff) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-30,200)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Vaccine\nefficacy (%)" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+          panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+ggsave( "figs/caseaverted_importation_vacccov.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" ))
+   
+ggsave( "figs/vaccdose_importation_vacccov.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+## 
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     ove_hospital, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in the number of affected hospitals (%)", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  coord_cartesian(ylim=c(-50,50)) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+# ggsave( "figs/vacccov_vacceff_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+#### Other statistics (variance-to-mean ratio, number of hospitals affected )  
+```{r}
+## 30 parametrer sets and 200 runs per parameter set 
+res <- readRDS( "out/vacccov_relpop_20181219T190631.rds" )
+pars <- readRDS( "out/pars_20181219T190631.rds" )
+
+cycle <- 6# 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+num_hospital_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$num_hospital_infected ) )
+num_hospital_control <- num_hospital_control[ rep( 1:length( num_hospital_control ), each=cycle ) ]
+
+
+# overall vaccine effectiveness
+# vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset) )
+num_hospital <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$num_hospital_infected ) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+red_hospital <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - num_hospital[ x ] / num_hospital_control[ x ] ) )
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, case_averted = case_averted,
+                  num_hospital = num_hospital, red_hospital = red_hospital )
+
+resdf <-  cbind( pars, df )
+
+resdf <- resdf[ resdf$vacc_scenario=="Distance", ]
+## plot variance of medican across parameter estimates
+library(tidyverse)
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# ggsave( "figs/vacccov_vacceff_inc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(100*vacc_eff) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-50,80) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+ggsave( "figs/vacccov_outbreaksize_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(100*vacc_eff) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-30,40)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Vaccine\nefficacy (%)" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+          panel.grid.minor = element_line( colour="#f0f0f0" )) 
+
+ggsave( "figs/vacccov_caseaverted_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" ))
+   
+ggsave( "figs/vacccov_vaccdose_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+## 
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     num_hospital, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of affected hospitals", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+# ggsave( "figs/vacccov_vacceff_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+```{r}
+## 30 parametrer sets and 30 runs per parameter set 
+res <- readRDS( "out/vacccov_relpop_20181212T090546.rds" )
+pars <- readRDS( "out/pars_20181212T090546.rds" )
+# res_control <- readRDS( "out/control_201C81211T131742.rds" ) 
+
+# beta_repeat <- 15
+# index_Vacc_zero <- seq( 1, nrow(pars), by=beta_repeat )
+index_Vacc_zero <- seq( 1, nrow(pars), by=6 )
+# med_inc_control <- sapply( seq_along(res_control), function(x) median( res_control[[x]]$cumul_symptom_onset ) ) # zero vaccine coverage
+med_inc_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+# beta values same over 15 sim runs
+med_inc_control <- med_inc_control[ rep( 1:length( med_inc_control ), each=6 ) ]
+# overall vaccine effectiveness
+# vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
+ci <- sapply( 1:nrow(pars), function(x) median(res[[x]]$cumul_symptom_onset) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[x]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[x] / med_inc_control[ x ] ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( med_inc_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, case_averted = case_averted)
+resdf <-  cbind( pars, df )
+
+## plot variance of medican across parameter estimates
+library( ggplot2 )
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     ove, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-100,100) ) +
+  # geom_hline( yintercept = 70, linetype="dashed" ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+  # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+   
+ggsave( "figs/vacccov_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(100*vacc_eff) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-30,40)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Vaccine\nefficacy (%)" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+
+ggsave( "figs/vacccov_caseaverted.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(100*vacc_eff) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Vaccine\nefficacy (%)" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+ggsave( "figs/vacccov_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+
+```{r}
+
+
+
+```
+
+```{r}
+novacc <- readRDS( "out/no_vacc.RDS" )
+res <- readRDS( "out/vacc_coverage.RDS" )
+id <- which( res$vacc_status == 0 ) ## id to mark the sim where vaccination didn't take place because the cases were not
+nvar = ncol( res$cumul_case )
+ci_novacc <- rep( novacc$cumul_case, nvar )
+ci <- c( novacc$cumul_case, as.vector( res$cumul_case ) )
+vacc <- c( novacc$cumul_vacc, as.vector( res$cumul_vacc ) )
+vacc_cov <- as.vector( sapply( c(0,30,50,70,95), function(x) rep(x,nsample)) )
+dd <- tbl_df( data.frame( ids=1:length(vacc), ci =ci, vacc=vacc, vacc_cov = vacc_cov  ) )
+dd$vacc_cov <- factor( dd$vacc_cov )
+
+library( ggplot2 )
+# library( ggridges )
+# ggplot(dd, aes(y=as.factor(vacc_cov), x=ci)) +
+#    geom_density_ridges()
+
+ggplot( dd, aes(vacc_cov, ci) ) +
+   geom_boxplot() + 
+   coord_flip()+
+   geom_jitter( width=0.2, alpha=0.4 ) +
+   # scale_y_continuous( limits=c(0,1000) ) +
+   labs( x="Vacccination coverage(%)", y="Cumulative incidence") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+# ggsave( "figs/vacc_cov_case.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( dd, aes(vacc_cov, vacc) ) + 
+   geom_boxplot() +
+   coord_flip() +
+   geom_jitter( width=0.2, alpha=0.4 ) +
+   labs( x="Vacccination coverage(%)", y="Total vaccine doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+# ggsave( "figs/vacc_cov_vacc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+
+```{r}
+dd <- dd[-id,]
+ve_mean <- rep( NA, nvar )
+ve_med <- rep( NA, 6 )
+vacc_dose_mean <- rep( NA, 6 )
+vacc_dose_med <- rep( NA, 6 )
+case_avt_per_dose_mean <- rep( NA, 6 )
+case_avt_per_dose_med <- rep( NA, 6 )
+for(i in 1: 6 ){
+   ddd <- dplyr::filter( dd, 100*(i-1) < ids & ids <= 100*i )
+   ci_novacc_mean <- mean( ddd$ci_novacc )
+
+   ci_novacc_med <- median( ddd$ci_novacc )
+   ci_vacc_mean <- mean( ddd$ci_vacc )
+   ci_vacc_med <- median( ddd$ci_vacc )
+
+   ve_mean[ i ] = 100*(ci_novacc_mean - ci_vacc_mean) / ci_novacc_mean
+   ve_med[ i ] = 100*(ci_novacc_med - ci_vacc_med) / ci_novacc_med
+   vacc_dose_mean[ i ] = mean( ddd$vacc )
+   vacc_dose_med[ i ] = median( ddd$vacc )
+   case_avt_per_dose_mean[ i ] <- (ci_novacc_mean - ci_vacc_mean) /vacc_dose_mean
+   case_avt_per_dose_med[ i ] <- (ci_novacc_med - ci_vacc_med)/vacc_dose_med
+   
+}
+
+for(i in 1: 6 ){
+   ddd <- dplyr::filter( dd, 100*(i-1) < ids & ids <= 100*i ); cat(nrow(ddd),",") 
+}
+case_threshold <- c(rep(5,100),rep(8,100),rep(11,100),rep(14,90),rep(17,64),rep(20,34))
+day_threshold <- c(rep(14,length(case_threshold)))
+dd$case_threshold <- case_threshold
+dd$day_threshold <- day_threshold
+ddf <- dplyr::tbl_df( dd )
+ddf$case_threshold <- factor( ddf$case_threshold )
+
+library( ggplot2 )
+ggplot( ddf, aes(case_threshold, ci_vacc) ) + 
+   geom_boxplot( ) +
+   geom_jitter( width = 0.2 ) +
+   scale_y_continuous( limits=c(0,1000) ) +
+   labs( x="Threshold incidence for vaccination response", y="Total cases") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+
+# ggsave( "figs/threshold_case_vacc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( ddf, aes(case_threshold, vacc) ) + 
+   geom_boxplot( ) +
+   geom_jitter( width = 0.2 ) +
+   labs( x="Threshold incidence for vaccination response", y="Total vaccine doses") +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+# ggsave( "figs/threshold_vacc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+### Putting resutls into tables 
+#### 
+```{r}
+res <- readRDS( "out/vacccov_relpop_20181219T190631.rds" )
+pars <- readRDS( "out/pars_20181219T190631.rds" )
+
+cycle <- 6# 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+# overall vaccine effectiveness
+# vacc_occurred <- sapply( 1:nrow(pars), function(x) (sum(res[[x]]$vacc_day_adjusted)- pars$n_per_par[1]) )
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, case_averted = case_averted)
+
+resdf <-  cbind( pars, df )
+
+# resdf <- dplyr::filter( resdf, vacc_eff == 0.3 )
+resdf <- resdf[ resdf$vacc_eff==0.7, ]
+
+library(dplyr)
+
+ove_summary <- resdf %>% 
+  group_by( vacc_cov, vacc_scenario ) %>% 
+  summarize( median = quantile( ove, probs=0.5, na.rm=TRUE ),
+             lower = quantile( ove, probs=0.025, na.rm=TRUE ),
+             upper = quantile( ove, probs=0.975, na.rm=TRUE ) )
+vacc_summary <- resdf %>% 
+  group_by( vacc_cov, vacc_scenario ) %>%  
+  summarize( median = quantile( vacc, probs=0.5, na.rm=TRUE ),
+             lower = quantile( vacc, probs=0.025, na.rm=TRUE ),
+             upper = quantile( vacc, probs=0.975, na.rm=TRUE ) )
+
+caseaverted_summary <- resdf %>% 
+  group_by( vacc_cov, vacc_scenario ) %>% 
+  summarize( median = quantile( case_averted, probs=0.5, na.rm=TRUE ),
+             lower = quantile( case_averted, probs=0.025, na.rm=TRUE ),
+             upper = quantile( case_averted, probs=0.975, na.rm=TRUE ) )
+
+vacc_summary_out <- data.frame( vacc_scenario = vacc_summary$vacc_scenario,
+                                case_threshold = vacc_summary$threshold_case_vacc,
+                                vacc = sprintf( "%.1f (%.1f, %.1f)", 
+                                                vacc_summary$median, 
+                                                vacc_summary$lower, 
+                                                vacc_summary$upper ) )
+
+# write.csv( ove_summary, "out/ove_summary.csv" )
+# write.csv( vacc_summary_out, "out/vacc_summary_out.csv" )
+# write.csv( caseaverted_summary, "out/caseaverted_summary.csv" )
+
+```
+
+### Threshold case vaccine impact
+```{r}
+res <- readRDS( "out/thresholdcase_par1-16_20181226T171400.rds" )
+pars <- readRDS( "out/pars_par1-16_20181226T171400.rds" )
+
+cycle <- 6 # 6 comes from the vaccine coverage being 0,0,1,0.3,...0,9
+index_Vacc_zero <- seq( 1, nrow(pars), by=cycle ) 
+ci_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$cumul_symptom_onset ) )
+ci_control <- ci_control[ rep( 1:length( ci_control ), each=cycle ) ]
+dur_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$dur_outbreak ) )
+dur_control <- dur_control[ rep( 1:length( dur_control ), each=cycle ) ]
+num_hospital_control <- sapply( index_Vacc_zero, function(x) median( res[[x]]$num_hospital_infected ) )
+num_hospital_control <- num_hospital_control[ rep( 1:length( num_hospital_control ), each=cycle ) ]
+
+ci <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_symptom_onset) )
+dur <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$dur_outbreak ) )
+num_hospital <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$num_hospital_infected ) )
+vacc <- sapply( 1:nrow(pars), function(x) median( res[[ x ]]$cumul_vacc_dose ) )  
+ove <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_control[ x ] ) )
+ove_dur <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - dur[ x ] / dur_control[ x ] ) )
+
+case_averted <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_control[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+ove_hospital <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - num_hospital[ x ] / num_hospital_control[ x ] ) )
+
+df <- data.frame( ci=ci, vacc = vacc, ove = ove, dur = dur, ove_dur = ove_dur, 
+                  case_averted = case_averted,
+                  num_hospital = num_hospital, ove_hospital = ove_hospital )
+
+resdf <- cbind( pars, df )
+resdf <- resdf[ resdf$threshold_case_vacc == 1, ]
+library(tidyverse)
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(threshold_case_vacc) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(0,500) ) +
+  labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+         fill = "Threshold\ncase incidence" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) +
+  facet_wrap(.~vacc_scenario)
+# ggsave( "figs/vacccov_vacceff_inc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(threshold_case_vacc) ),
+                position = position_dodge(width = .6) ) +
+  coord_cartesian( ylim=c(-25,75) ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+         fill = "Threshold\ncase incidence" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) +
+  facet_wrap(.~vacc_scenario)
+
+# ggsave( "figs/vacccov_outbreaksize_thresholdcase_scenario.png", width=3.4*3, height=2.5*3, units="in" )
+
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(threshold_case_vacc) ),
+                position = position_dodge(width = .6) ) +
+  # coord_cartesian( ylim=c(-25,75) ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak duration (%)", 
+         fill = "Threshold\ncase incidence" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) +
+  facet_wrap(.~vacc_scenario)
+
+# ggsave( "figs/vacccov_dur_thresholdcase_scenario.png", width=3.4*3, height=2.5*3, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(vacc_scenario) ),
+                position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak duration (%)", 
+         fill = "Vaccination\nscenario" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" ))
+
+ggsave( "figs/vacccov_dur_vaccinationscenario.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+
+ggplot( resdf ) +
+   geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+                     fill=as.factor(threshold_case_vacc) ),
+                 position = position_dodge(width = .6) ) + 
+   coord_cartesian(ylim=c(-20,100)) +
+   labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+         fill = "Threshold\ncase incidence" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+          panel.grid.minor = element_line( colour="#f0f0f0" )) +
+   facet_wrap(.~vacc_scenario)
+
+# ggsave( "figs/vacccov_caseaverted_thresholdcase_scenario.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     vacc, fill=as.factor(threshold_case_vacc) ), 
+                 position = position_dodge(width = .6) ) +
+  labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+         fill = "Threshold\ncase incidence" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+         panel.grid.minor = element_line( colour="#f0f0f0" )) +
+  facet_wrap(.~vacc_scenario)
+   
+# ggsave( "figs/vacccov_vaccdose_thresholdcase_scenario.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+## 
+ggplot( resdf ) +
+  geom_boxplot( aes(as.factor(100*vacc_cov), 
+                     num_hospital, fill=as.factor(threshold_case_vacc) ), 
+                 position = position_dodge(width = .6) ) +
+  coord_cartesian(ylim=c(-0,50)) +
+  labs( x="Vaccine coverage rate (%)", y="Number of affected hospitals", 
+         fill = "Threshold\ncase incidence" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) +
+  facet_wrap(.~vacc_scenario)
+   
+# ggsave( "figs/vacccov_numhospitals_thresholdcase_scenario.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+
+
+### Tile plot of vaccine impact
+```{r}
+### Overall vaccine effectiveness
+library(tidyverse)
+vacc_radius <- c(30,40,50,60,70,80,90)
+vacc_threhold_case <- c(5, 7, 9, 11, 13, 15)
+df <- tbl_df( expand.grid( threshold=vacc_threhold_case, radius=vacc_radius ) )
+df$VE <- NA
+# call data
+a <- readRDS( "out/no_vacc.RDS" )
+b <- readRDS( "out/vacc_case_radius.RDS" )
+ci_mean_novacc <- mean( a$cumul_case )
+ci_mean_vacc <- colMeans( b$cumul_case )
+dose_mean_vacc <- colMeans( b$cumul_vacc )
+
+df$VE <- (ci_mean_novacc-ci_mean_vacc) / ci_mean_novacc * 100
+df$ve_per_dose <- (ci_mean_novacc-ci_mean_vacc) / dose_mean_vacc * 10000
+ 
+library(viridis)
+ggplot( df, aes(radius, threshold ) ) +
+   # expand_limits( x = 0, y = 0 ) +
+   geom_tile( aes( fill = ve_per_dose), color = "white") +
+   scale_fill_viridis() +
+   labs( x="Vaccination radius", y="Threshold case incidence", fill="VE" ) +
+   theme_classic() 
+
+# ggsave( "figs/outbreak_prob.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+cut_off <- seq( 1, 30, 1 )
+time <- 1:30
+df <- tbl_df( expand.grid( time=time, cut_off=cut_off ) )
+df$prob <- NA
+ci <- tbl_df( cumul_symptom_onset ) 
+index = 1
+for( i in 1:length(cut_off) ){
+   for( j in 1:length(time) ) {
+      con_1 <- function(x) x[ j ] > cut_off[ i ]
+      con_2 <- function(x) tail(x,1) > 200
+      d1 <- ci %>% select_if( con_1 )
+      d2 <- d1 %>% select_if( con_2 )
+      if( ncol(d1) > 0 ){ 
+         df[ index, "prob" ] <- ncol( d2 ) / ncol( d1 )
+      }
+      index <- index + 1
+   }
+}
+
+library(viridis)
+ggplot( df, aes(time, cut_off ) ) +
+   expand_limits( x = 0, y = 0 ) +
+   geom_tile( aes( fill = prob), color = "white") +
+   scale_fill_viridis() +
+   labs( x="Day", y="Cut-off", fill="Prob" ) +
+   theme_classic() 
+
+ggsave( "figs/outbreak_prob.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+```{r}
+ci <- tbl_df( cumul_symptom_onset[ nrow(cumul_symptom_onset), ] )
+ggplot( ci ) +
+   geom_histogram( aes( x=value ), binwidth = 10 ) +
+   labs( x="Outbreak size", y="Frequency" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="grey94" ) )
+
+# ggsave( "figs/outbreak_size_dist_ts0p1.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+```
+

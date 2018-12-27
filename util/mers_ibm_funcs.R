@@ -1,6 +1,5 @@
 
 ##input_data
-## easy to export (for parallel learing) once wrapped into a single function
 path_java_home <- "C:/Program Files/Java/jdk-11.0.1/"
 path_java_class <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/java/MERS-CoV_Korea_ABM/MERS_Korea_IBM"
 path_commons_math <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-math3-3.6.1.jar"
@@ -13,12 +12,12 @@ path_util_func <- "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Ko
 par_dataframe <- function( numruns = 1, 
           stepsize = 0.2, 
           stoptime = 60, 
-          beta = 0.35, 
+          beta = 0.35,  
+          delay_move = 2,
           frac_highrisk = 22/185, 
           factor_highrisk = 7.9/0.1, 
           shape_gamma_offspring = 0.2, 
           hospital_search_radius = 30,
-          delay_move = 2,
           outbreak_scenario = "2015",
           under_vaccination_scenario = FALSE,
           vaccination_scenario = "Distance",
@@ -31,7 +30,7 @@ par_dataframe <- function( numruns = 1,
           threshold_day_vacc = 10,
           random_seed = 0 ){
   
-  df <- data.frame(
+df <- data.frame(
     par= c(  "numruns", 
   "stepsize", 
   "stoptime" , 
@@ -80,11 +79,12 @@ par_dataframe <- function( numruns = 1,
 run_java_ibm <- function( stepsize = 0.2, 
                           stoptime = 60, 
                           beta = 0.35, 
+                          delay_move = 2,
                           frac_highrisk = 22/185, 
                           factor_highrisk = 7.9/0.1, 
                           shape_gamma_offspring = 0.2, 
                           hospital_search_radius = 30,
-                          delay_move = 2,
+                          meantime_isolation = c(4.259, 2.400, 0.500),
                           outbreak_scenario = "2015",
                           under_vaccination_scenario = FALSE,
                           vaccination_scenario = "Distance",
@@ -95,6 +95,7 @@ run_java_ibm <- function( stepsize = 0.2,
                           delay_vacc = 14,
                           threshold_case_vacc = 5,
                           threshold_day_vacc = 10,
+                          dur_vaccination = 10,
                           random_seed = 0 ){
    
 
@@ -116,6 +117,7 @@ run_java_ibm <- function( stepsize = 0.2,
    # (R0 = 4.259 * beta *( (1-frac_highrisk) + factor_highrisk*frac_highrisk ))# average day before isolation during the initial stage
    # vacc_target_region_id = c( 0L, 1L, 6L, 8L, 11L, 13L, 15L, 16L) #as.integer(0:15)
    # vacc_target_region_id = as.integer(0:16)
+   cumulative_case_list = list()
    offspring_list = list()
    longitude_affected_hospital_list = list()
    latitude_affected_hospital_list = list()
@@ -125,6 +127,7 @@ run_java_ibm <- function( stepsize = 0.2,
     .jcall( pars, "V", "setStepSize", stepsize )
     .jcall( pars, "V", "setStopTime", stoptime )
     .jcall( pars, "V", "setRateTransmit", beta )
+    .jcall( pars, "V", "setMeanTimeToIsolation", meantime_isolation )
     .jcall( pars, "V", "setPropSeekingCareFromOtherHospitals", frac_highrisk )
     .jcall( pars, "V", "setFactorHighRiskTransmissibility", factor_highrisk )
     .jcall( pars, "V", "setShapeGammaOffspring", shape_gamma_offspring )
@@ -138,6 +141,7 @@ run_java_ibm <- function( stepsize = 0.2,
     .jcall( pars, "V", "setVaccEfficacy", vacc_efficacy )
     .jcall( pars, "V", "setRelativeVaccEfficacyPostExposure", rel_vacc_eff_post_exposure )
     .jcall( pars, "V", "setMeanDelayVaccineInducedImmunity", delay_vacc )
+    .jcall( pars, "V", "setDayNeededForVaccination", dur_vaccination )
     .jcall( pars, "V", "setThresholdNumberCaseForVaccinationInitiation", as.integer( threshold_case_vacc ) )
     .jcall( pars, "V", "setThresholdDayVaccinationInitiation", as.integer( threshold_day_vacc ) )
       
@@ -155,6 +159,7 @@ run_java_ibm <- function( stepsize = 0.2,
     
     cumul_vacc_dose <- .jcall( pars, "I", "getCumulVaccDose" )
     vacc_day_adjusted <- .jcall( model, "I", "getDayVaccinationStartAdjusted", pars )
+    dur_outbreak <- .jcall( model, "D", "calcOutbreakDuration" )
       
     list <- list()
     list$cumul_symptom_onset <- cumul_symptom_onset
@@ -166,6 +171,7 @@ run_java_ibm <- function( stepsize = 0.2,
     list$latitude_affected_hospital_list <- latitude_affected_hospital_list
     list$cumul_vacc_dose <- cumul_vacc_dose
     list$vacc_day_adjusted <- vacc_day_adjusted
+    list$dur_outbreak <- dur_outbreak
 
     return( list )
 }
@@ -174,26 +180,27 @@ run_java_ibm <- function( stepsize = 0.2,
 #########################################################################################################
 ## returns the only the final values of outbreak size, vaccine doses, ect
 ## over iteration
-run_ibm_simple <- function( iter=1, ... ){
-   list <- list() 
+run_ibm_simple <- function( iter=1, return_list=FALSE, ... ){
+   list <- list()
+   cumul_symptom_onset_list <- list()
    for( i in 1:iter ){
       res <- run_java_ibm( ..., random_seed = i )
       list$cumul_symptom_onset[ i ] <- tail( res$cumul_symptom_onset, 1 )
-      list$daily_symptom_onset[ i ] <- tail( res$daily_symptom_onset, 1 )
+      # list$daily_symptom_onset[ i ] <- tail( res$daily_symptom_onset, 1 )
       list$var_mean_ratio[ i ] <- res$var_mean_ratio
       list$num_hospital_infected[ i ] <- res$num_hospital_infected
-      list$offspring_list[ i ] <- res$offspring_list
-      list$longitude_affected_hospital_list[ i ] <- res$longitude_affected_hospital_list
-      list$latitude_affected_hospital_list[ i ] <- res$latitude_affected_hospital_list
       list$cumul_vacc_dose[ i ] <- res$cumul_vacc_dose
       list$vacc_day_adjusted[ i ] <- res$vacc_day_adjusted
+      list$dur_outbreak[ i ] <- res$dur_outbreak
+      if( return_list ){
+        cumul_symptom_onset_list[[ 1 ]] <- res$cumul_symptom_onset
+        list$cumul_symptom_onset_list[ i ] <- cumul_symptom_onset_list
+        list$offspring_list[ i ] <- res$offspring_list
+        list$longitude_affected_hospital_list[ i ] <- res$longitude_affected_hospital_list
+        list$latitude_affected_hospital_list[ i ] <- res$latitude_affected_hospital_list
+      }
    }
-   
-   # filename <- paste0( "out/run_ibm_simple_",format(Sys.time(), "%Y%m%dT%H%M%S"), ".rds")
-   # saveRDS( list, filename )
-   
    return( list )
 }
-
 
 
