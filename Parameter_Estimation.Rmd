@@ -114,110 +114,44 @@ ggplot( data=chain_burnin ) +
 quantile( chain_burnin$val, probs=c(0.025,0.5,0.975) )
 ```
 
-### run functions for ABC 
+
+### Del Moral et al. sequential Monte Carlo approximate Bayesian computation
 ```{r}
-run_ibm_abc <- function( theta ){
-   # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R" )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )
-   dat <- dat_symptom_onset_daily
-   num_hospital_infected_observed = 14
-   offspring_var_mean_ratio_observed = 51.769
-   total_case_observed = 179
-   
-   stepsize = 0.2
-   stoptime = 60
-   beta = 0.35
-   frac_highrisk = 22/185
-   factor_highrisk = 7.9/0.1
-   delay_move = 3
-   shape_gamma_offspring = 0.2
-   if( !is.na( theta[ 2 ] ) ) beta = theta[ 1 ]
-   if( !is.na( theta[ 3 ] ) ) delay_move = theta[ 2 ]
-   if( !is.na( theta[ 4 ] ) ) frac_highrisk = theta[ 3 ]
-   if( !is.na( theta[ 5 ] ) ) factor_highrisk = theta[ 4 ] # inverse is taken to estimate the param between 0 and 1
-   cat( "beta=", beta,"\n" )
-   
-   res <- run_java_ibm( stepsize = stepsize, 
-                        beta = beta, 
-                        frac_highrisk = frac_highrisk, 
-                        factor_highrisk = factor_highrisk, 
-                        shape_gamma_offspring = shape_gamma_offspring, 
-                        delay_move = delay_move )
-   
-   sum_stat <- numeric()
-   res_var <- c( "inc", "cum", "var_mean_ratio", "num_hospital" )
-   # res_var <- c( "inc", "cum", "var_mean_ratio" )
-   if( "inc" %in% res_var ){
-      ssq_inc <- sqrt( sum( ( res$daily_symptom_onset - dat )^2 ) )
-      sum_stat <- c( sum_stat, ssq_inc )
-   }
-   if( "cum" %in% res_var ){
-      ssq_cumul <- sqrt( ( res$cumul_symptom_onset[stoptime] - total_case_observed )^2 )
-      sum_stat <- c( sum_stat, ssq_cumul )
-   }
-   if( "var_mean_ratio" %in% res_var ){
-      ssq_var_mean_ratio <- sqrt( ( res$var_mean_ratio - offspring_var_mean_ratio_observed )^2 )
-      sum_stat <- c( sum_stat, ssq_var_mean_ratio )
-   }
-   if( "num_hospital" %in% res_var ){
-      ssq_num_hospital_infected <- sqrt( ( res$num_hospital_infected - num_hospital_infected_observed )^2 )
-      sum_stat <- c( sum_stat, ssq_num_hospital_infected )
-   }
-   return( sum_stat )
-}
+rm(list=ls())
+library(rJava)
+options( java.parameters = "-Xmx2g" )
+options( "java.parameters" )
+library( EasyABC )
+source( "util/mers_ibm_funcs.R" )
+java_class_path_setup()
+sum_stat_obs = rep( 0, 3 )
+prior = list( c("unif", 1e-3, 1), c("unif", 1e-3, 10) )
+alpha = 0.5
+tolerance = 1e-5
+
+tbegin = proc.time()
+fit = ABC_sequential( method="Delmoral", 
+                      model = run_ibm_abc_cls, 
+                      prior = prior,
+                      nb_simul = 1000, 
+                      summary_stat_target = sum_stat_obs, 
+                      alpha = alpha, 
+                      tolerance_target = tolerance, 
+                      progress_bar = TRUE, 
+                      use_seed = TRUE, 
+                      n_cluster = 3 )
+
+proc.time() - tbegin
+
+hist( fit$param[,1], breaks=seq(0,1,0.1) )
+hist( fit$param[,2], breaks=seq(0,10,0.1) )
+
+tstamp <- format( Sys.time(), "%Y%m%dT%H%M%S" )
+saveRDS( fit, paste0( "out/fit_", tstamp, ".rds") )
 
 ```
 
-```{r}
-run_ibm_abc_cls <- function( theta ){
-   # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R" )
-   source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )
-   dat <- dat_symptom_onset_daily
-   num_hospital_infected_observed = 14
-   offspring_var_mean_ratio_observed = 51.769
-   total_case_observed = 186
-   
-   stepsize = 0.2
-   stoptime = 60
-   beta = 0.35
-   frac_highrisk = 22/185
-   factor_highrisk = 7.9/0.1
-   delay_move = 3
-   shape_gamma_offspring = 0.2
 
-   random_seed <- theta[ 1 ]
-   
-   if( !is.na( theta[ 2 ] ) ) beta <- theta[ 2 ]
-   if( !is.na( theta[ 3 ] ) ) delay_move <- theta[ 3 ]
-   if( !is.na( theta[ 4 ] ) ) frac_highrisk <- theta[ 4 ]
-   if( !is.na( theta[ 5 ] ) ) factor_highrisk <- theta[ 5 ] 
-   
-   res <- run_java_ibm( stepsize = stepsize, 
-                        beta = beta, 
-                        frac_highrisk = frac_highrisk, 
-                        factor_highrisk = factor_highrisk, 
-                        delay_move = delay_move,
-                        shape_gamma_offspring = shape_gamma_offspring,
-                        random_seed = random_seed )
-   
-   # ssq_inc <- sqrt( sum( ( res$daily_symptom_onset - dat )^2 )  / sum( res$daily_symptom_onset^2 ) ) 
-   # ssq_cumul <- sqrt( ( res$cumul_symptom_onset[stoptime] - total_case_observed )^2 / res$cumul_symptom_onset[stoptime]^2 )
-   # ssq_var_mean_ratio <- sqrt( ( res$var_mean_ratio - offspring_var_mean_ratio_observed )^2 /  res$var_mean_ratio^2 )
-   # ssq_num_hospital_infected <- sqrt( ( res$num_hospital_infected - num_hospital_infected_observed )^2 / res$num_hospital_infected^2 )
-   
-   ssq_cumul <- ( (res$cumul_symptom_onset[stoptime] - total_case_observed) / res$cumul_symptom_onset[stoptime] )^2 
-   ssq_var_mean_ratio <- ( (res$var_mean_ratio - offspring_var_mean_ratio_observed)/res$var_mean_ratio )^2
-   ssq_num_hospital_infected <- ( (res$num_hospital_infected - num_hospital_infected_observed )/res$num_hospital_infected )^2 
-   
-   # sum_stat <- c( ssq_inc, ssq_cumul, ssq_var_mean_ratio,  ssq_num_hospital_infected )
-   # sum_stat <- c( ssq_cumul, ssq_var_mean_ratio,  ssq_num_hospital_infected )
-   sum_stat <- c( ssq_cumul )
-   return( sum_stat )
-}
-
-```
 
 
 ### Approximate Bayesian Computation
@@ -291,33 +225,6 @@ saveRDS( abc_beaumont, "out/beta_3Dec2018.rds" )
 ```
 
 
-### EasyABC package
-```{r}
-library( EasyABC )
-source( "util/mers_ibm_funcs.R" )
-java_class_path_setup()
-# source( "data/mers_symptom_onset_data.R" )
-sum_stat_obs = rep( 0, 4 )
-# sum_stat_obs = dat_symptom_onset_daily
-max_beta = 1
-prior = list( c("unif", 1e-3, 1), c("unif", 1e-3, 1), c("unif", 1e-3, 1), c("unif", 1e-3, 1) )
-# prior = list( c("unif", 1e-2, max_beta), c("unif", 1e-4, 1) )
-alpha_delmo = 0.8
-tolerance =  
-
-tbegin = proc.time()
-abc_delmoral = ABC_sequential( method="Delmoral", model = run_ibm_cls, prior = prior,
-    nb_simul = 100, summary_stat_target = sum_stat_obs, alpha = alpha_delmo, 
-    tolerance_target=tolerance, progress_bar=TRUE, use_seed = TRUE, n_cluster = 3 )
-
-proc.time() - tbegin
-
-hist( abc_delmoral$param[,1], breaks=seq(0,1,0.1) )
-hist( abc_delmoral$param[,2], breaks=seq(0,1,0.1) )
-hist( abc_delmoral$param[,3], breaks=seq(0,1,0.1) )
-hist( abc_delmoral$param[,4], breaks=seq(0,1,0.1) )
-```
-
 
 
 
@@ -387,30 +294,38 @@ d = cbind( d, tbl_df( abc_beaumont$param[,2] ) )
 #    scale_x_continuous( limits=c(0,1) ) +  
 #    labs(x = "Avg no of infections per case per day", y = "Frequency" )
 
-# ggsave( "figs/par_fit_beta.png", width=3.4, height=2.7, units="in" )
-
-```
 
 
-#### parameter plot
-```{r}
+toy_model2_1<-function(x){ 
+   set.seed ( x[ 1 ] )
+   summary_stat <- c( x[2] + x[3] + rnorm(1,0,0.1) - 1.5, 
+                      x[2] * x[3] + rnorm(1,0,0.1) - 0.5 ) 
+}
+toy_prior2=list(c("unif",0,10),c("unif",0,10))
+sum_stat_obs2=c(0,0)
+tolerance=0.001
+
+
+abc_beaumont <- ABC_sequential( method="Delmoral", model=toy_model2_1, 
+                                prior=toy_prior2, nb_simul=10-0, 
+                                summary_stat_target=sum_stat_obs2, 
+                                tolerance=tol, 
+                                progress_bar=TRUE, 
+                                use_seed=TRUE, n_cluster=3 )
+
+abc_beaumont
+
+hist( abc_beaumont$param[,1] )
+hist( abc_beaumont$param[,2] )
+plot( abc_beaumont$param[,1], abc_beaumont$param[,2] )
+
+
+
+# hist( abc_delmoral$param[,3], breaks=seq(0,1,0.01) )
+# saveRDS( abc_delmoral, "out/abc_delmoral_1Sept2018.rds" )
 library(tidyverse)
-fit = readRDS( "out/beta_move_0_4Dec2018.rds" )
-pars = tibble( p1 = fit$param[,2], p2 = fit$param[,1] )
-p = ggplot( pars, aes( p1, p2 ) ) + 
-   stat_density_2d( aes( fill = ..level..), geom = "polygon") +
-   scale_fill_continuous( low="lavenderblush", high="red" ) +
-   geom_point( alpha=0.5, size=1 ) +
-   # geom_jitter( alpha=0.5, size = 2) +
-   # customize labels, including legend label for fill
-  labs(y = "Average daily new infections of a low-infectivity case", 
-       x = "Average delay before moving to another hospital (day)" ) +
-  lims(x = c(0,10), y = c(0, 1)) + 
-  theme_classic() + theme( panel.grid.major = element_line( colour="#f0f0f0" ), legend.position = "none" ) 
-
-library(ggExtra)
-p2 = ggMarginal( p, type="histogram" )
-ggsave( "figs/delay_beta_fit.png", plot=p2, width=3.4*2, height=2.7*2, units="in" )
+d = tbl_df( abc_beaumont$param[,1] )
+d = cbind( d, tbl_df( abc_beaumont$param[,2] ) )
 
 ```
 

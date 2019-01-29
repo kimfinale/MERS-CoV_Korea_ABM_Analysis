@@ -1,3 +1,11 @@
+java_class_path_setup <- function(){
+  Sys.setenv( JAVA_HOME = "C:/Program Files/Java/jdk-11.0.1/" )
+  library( rJava )
+  .jinit()
+  .jaddClassPath( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/java/MERS-CoV_Korea_ABM/MERS_Korea_IBM" )
+  .jaddClassPath( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-math3-3.6.1.jar" )
+  .jaddClassPath( "C:/Users/jonghoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/lib/commons-lang3-3.8.jar" )
+}
 
 ##input_data
 path_java_home <- "C:/Program Files/Java/jdk-11.0.1/"
@@ -176,31 +184,131 @@ run_java_ibm <- function( stepsize = 0.2,
     return( list )
 }
 
-
 #########################################################################################################
 ## returns the only the final values of outbreak size, vaccine doses, ect
 ## over iteration
-run_ibm_simple <- function( iter=1, return_list=FALSE, ... ){
-   list <- list()
-   cumul_symptom_onset_list <- list()
-   for( i in 1:iter ){
-      res <- run_java_ibm( ..., random_seed = i )
-      list$cumul_symptom_onset[ i ] <- tail( res$cumul_symptom_onset, 1 )
-      # list$daily_symptom_onset[ i ] <- tail( res$daily_symptom_onset, 1 )
-      list$var_mean_ratio[ i ] <- res$var_mean_ratio
-      list$num_hospital_infected[ i ] <- res$num_hospital_infected
-      list$cumul_vacc_dose[ i ] <- res$cumul_vacc_dose
-      list$vacc_day_adjusted[ i ] <- res$vacc_day_adjusted
-      list$dur_outbreak[ i ] <- res$dur_outbreak
-      if( return_list ){
-        cumul_symptom_onset_list[[ 1 ]] <- res$cumul_symptom_onset
-        list$cumul_symptom_onset_list[ i ] <- cumul_symptom_onset_list
-        list$offspring_list[ i ] <- res$offspring_list
-        list$longitude_affected_hospital_list[ i ] <- res$longitude_affected_hospital_list
-        list$latitude_affected_hospital_list[ i ] <- res$latitude_affected_hospital_list
-      }
-   }
-   return( list )
+run_ibm_simple <- function( iter=1, rng_seed_init=0, return_list=FALSE, ... ){
+  list <- list()
+  cumul_symptom_onset_list <- list()
+  for( i in 1:iter ){
+    rng_seed <- rng_seed_init + i
+    res <- run_java_ibm( ..., random_seed = rng_seed )
+    list$cumul_symptom_onset[ i ] <- tail( res$cumul_symptom_onset, 1 )
+    # list$daily_symptom_onset[ i ] <- tail( res$daily_symptom_onset, 1 )
+    list$var_mean_ratio[ i ] <- res$var_mean_ratio
+    list$num_hospital_infected[ i ] <- res$num_hospital_infected
+    list$cumul_vacc_dose[ i ] <- res$cumul_vacc_dose
+    list$vacc_day_adjusted[ i ] <- res$vacc_day_adjusted
+    list$dur_outbreak[ i ] <- res$dur_outbreak
+    if( return_list ){
+      cumul_symptom_onset_list[[ 1 ]] <- res$cumul_symptom_onset
+      list$cumul_symptom_onset_list[ i ] <- cumul_symptom_onset_list
+      list$offspring_list[ i ] <- res$offspring_list
+      list$longitude_affected_hospital_list[ i ] <- res$longitude_affected_hospital_list
+      list$latitude_affected_hospital_list[ i ] <- res$latitude_affected_hospital_list
+    }
+  }
+  return( list )
 }
 
+#########################################################################################################
+### run functions for approximate Bayesian computtion 
+
+run_ibm_abc <- function( theta ){
+  # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
+  source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R" )
+  source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )
+  dat <- dat_symptom_onset_daily
+  num_hospital_infected_observed = 14
+  offspring_var_mean_ratio_observed = 51.769
+  total_case_observed = 179
+  
+  stepsize = 0.2
+  stoptime = 60
+  beta = 0.35
+  frac_highrisk = 22/185
+  factor_highrisk = 7.9/0.1
+  delay_move = 3
+  shape_gamma_offspring = 0.2
+  if( !is.na( theta[ 2 ] ) ) beta = theta[ 1 ]
+  if( !is.na( theta[ 3 ] ) ) delay_move = theta[ 2 ]
+  if( !is.na( theta[ 4 ] ) ) frac_highrisk = theta[ 3 ]
+  if( !is.na( theta[ 5 ] ) ) factor_highrisk = theta[ 4 ] # inverse is taken to estimate the param between 0 and 1
+  cat( "beta=", beta,"\n" )
+  
+  res <- run_java_ibm( stepsize = stepsize, 
+                       beta = beta, 
+                       frac_highrisk = frac_highrisk, 
+                       factor_highrisk = factor_highrisk, 
+                       shape_gamma_offspring = shape_gamma_offspring, 
+                       delay_move = delay_move )
+  
+  sum_stat <- numeric()
+  res_var <- c( "inc", "cum", "var_mean_ratio", "num_hospital" )
+  # res_var <- c( "inc", "cum", "var_mean_ratio" )
+  if( "inc" %in% res_var ){
+    ssq_inc <- sqrt( sum( ( res$daily_symptom_onset - dat )^2 ) )
+    sum_stat <- c( sum_stat, ssq_inc )
+  }
+  if( "cum" %in% res_var ){
+    ssq_cumul <- sqrt( ( res$cumul_symptom_onset[stoptime] - total_case_observed )^2 )
+    sum_stat <- c( sum_stat, ssq_cumul )
+  }
+  if( "var_mean_ratio" %in% res_var ){
+    ssq_var_mean_ratio <- sqrt( ( res$var_mean_ratio - offspring_var_mean_ratio_observed )^2 )
+    sum_stat <- c( sum_stat, ssq_var_mean_ratio )
+  }
+  if( "num_hospital" %in% res_var ){
+    ssq_num_hospital_infected <- sqrt( ( res$num_hospital_infected - num_hospital_infected_observed )^2 )
+    sum_stat <- c( sum_stat, ssq_num_hospital_infected )
+  }
+  return( sum_stat )
+}
+### run via a cluster of CPU's
+run_ibm_abc_cls <- function( theta ){
+  # # stopifnot( length(res_var) > 0, length(res_var) > 0 )
+  source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/data/mers_symptom_onset_data.R" )
+  source( "C:/Users/jongHoon.kim/workspace/IVI_Projects/MERS/MERS-CoV_Korea_ABM_Analysis/ABM_Analysis/util/mers_ibm_funcs.R" )
+  dat <- dat_symptom_onset_daily
+  num_hospital_infected_observed = 14
+  offspring_var_mean_ratio_observed = 51.769
+  total_case_observed = 186
+  
+  stepsize = 0.2
+  stoptime = 60
+  beta = 0.35
+  frac_highrisk = 22/185
+  factor_highrisk = 7.9/0.1
+  delay_move = 3
+  shape_gamma_offspring = 0.2
+  
+  random_seed <- theta[ 1 ]
+  
+  if( !is.na( theta[ 2 ] ) ) beta <- theta[ 2 ]
+  if( !is.na( theta[ 3 ] ) ) delay_move <- theta[ 3 ]
+  if( !is.na( theta[ 4 ] ) ) frac_highrisk <- theta[ 4 ]
+  if( !is.na( theta[ 5 ] ) ) factor_highrisk <- theta[ 5 ] 
+  
+  res <- run_java_ibm( stepsize = stepsize, 
+                       beta = beta, 
+                       frac_highrisk = frac_highrisk, 
+                       factor_highrisk = factor_highrisk, 
+                       delay_move = delay_move,
+                       shape_gamma_offspring = shape_gamma_offspring,
+                       random_seed = random_seed )
+  
+  # ssq_inc <- sqrt( sum( ( res$daily_symptom_onset - dat )^2 )  / sum( res$daily_symptom_onset^2 ) ) 
+  # ssq_cumul <- sqrt( ( res$cumul_symptom_onset[stoptime] - total_case_observed )^2 / res$cumul_symptom_onset[stoptime]^2 )
+  # ssq_var_mean_ratio <- sqrt( ( res$var_mean_ratio - offspring_var_mean_ratio_observed )^2 /  res$var_mean_ratio^2 )
+  # ssq_num_hospital_infected <- sqrt( ( res$num_hospital_infected - num_hospital_infected_observed )^2 / res$num_hospital_infected^2 )
+  
+  ssq_cumul <- ( (res$cumul_symptom_onset[stoptime] - total_case_observed) / res$cumul_symptom_onset[stoptime] )^2 
+  ssq_var_mean_ratio <- ( (res$var_mean_ratio - offspring_var_mean_ratio_observed)/res$var_mean_ratio )^2
+  ssq_num_hospital_infected <- ( (res$num_hospital_infected - num_hospital_infected_observed )/res$num_hospital_infected )^2 
+  
+  # sum_stat <- c( ssq_inc, ssq_cumul, ssq_var_mean_ratio,  ssq_num_hospital_infected )
+  sum_stat <- c( ssq_cumul, ssq_var_mean_ratio,  ssq_num_hospital_infected )
+  # sum_stat <- c( ssq_cumul )
+  return( sum_stat )
+}
 

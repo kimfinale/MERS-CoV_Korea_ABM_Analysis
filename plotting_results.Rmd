@@ -5,6 +5,181 @@ editor_options:
 chunk_output_type: console
 ---
 
+
+
+
+
+#### parameter plot
+```{r}
+library(tidyverse)
+# fit = readRDS( "out/beta_move_0_4Dec2018.rds" )
+fit = readRDS( "out/fit_20190123T195146.rds" )
+pars = tibble( p1 = fit$param[,2], p2 = fit$param[,1] )
+# pars <- unique( pars )
+p = ggplot( pars, aes( p1, p2 ) ) + 
+   stat_density_2d( aes( fill = ..level..), geom = "polygon") +
+   scale_fill_continuous( low="lavenderblush", high="red" ) +
+   geom_point( alpha=0.1, size=2 ) +
+   # geom_jitter( alpha=0.5, size = 2) +
+   # customize labels, including legend label for fill
+  labs(y = "Average daily new infections of a low-infectivity case", 
+       x = "Average delay before moving to another hospital (day)" ) +
+  lims(x = c(0,10), y = c(0,1)) + 
+  theme_classic() + theme( panel.grid.major = element_line( colour="#f0f0f0" ), legend.position = "none" ) 
+
+library(ggExtra)
+p2 = ggMarginal( p, type="histogram" )
+# ggsave( "figs/delay_beta_fit.png", plot=p2, width=3.4*2, height=2.7*2, units="in" )
+p2
+```
+
+### Runs across different random seeds and paramter values are combined
+```{r}
+# generate a data frame 
+res_ctrl <- readRDS( "out/ctrl_thresholdcase_cov_20190128T122443.rds" )
+pars_ctrl <- readRDS( "out/ctrl_pars_20190128T122443.rds" )
+res <- readRDS( "out/thresholdcase_cov_20190128T120645.rds" )
+pars <- readRDS( "out/pars_20190128T120645.rds" )
+n_per_par <- pars$n_per_par[1] 
+  
+n <- nrow( pars_ctrl )
+ci_ctrl <- as.vector( sapply( seq_len( n ), function(x) res_ctrl[[x]]$cumul_symptom_onset ) )
+dur_ctrl <- as.vector( sapply( seq_len( n ), function(x) res_ctrl[[x]]$dur_outbreak ) )
+num_hosp_ctrl <- as.vector( sapply( seq_len( n ), function(x) res_ctrl[[x]]$num_hospital_infected ) )
+
+ci <- as.vector( sapply( 1:nrow(pars), function(x) res[[ x ]]$cumul_symptom_onset ) )
+dur <- as.vector( sapply( 1:nrow(pars), function(x) res[[ x ]]$dur_outbreak ) )
+num_hosp <- as.vector( sapply( 1:nrow(pars), function(x) res[[ x ]]$num_hospital_infected ) )
+vacc <- as.vector( sapply( 1:nrow(pars), function(x)  res[[ x ]]$cumul_vacc_dose ) )  
+pop_risk <- 352663
+prop_vacc <- vacc / pop_risk
+
+
+len <- 25
+ci_ctrl <- ci_ctrl[ rep( 1:length( ci_ctrl ), each=len ) ]
+dur_ctrl <- dur_ctrl[ rep( 1:length( dur_ctrl ), each=len ) ]
+num_hosp_ctrl <- num_hosp_ctrl[ rep( 1:length( num_hosp_ctrl ), each=len ) ]
+
+
+ve_size <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - ci[ x ] / ci_ctrl[ x ] ) )
+ve_dur <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - dur[ x ] / dur_ctrl[ x ] ) )
+ve_case_avt <- sapply( 1:nrow(pars), function(x) 10000 * ( ( ci_ctrl[ x ] - ci[ x ]  )  / vacc[ x ] ) ) #
+ve_num_hosp <- sapply( 1:nrow(pars), function(x) 100 * ( 1 - num_hosp[ x ] / num_hosp_ctrl[ x ] ) )
+
+df <- data.frame( ci=ci, dur = dur, vacc = vacc, prop_vacc = prop_vacc, 
+                  num_hosp = num_hosp, ve_size = ve_size, ve_dur = ve_dur, 
+                  ve_case_avt = ve_case_avt,
+                  ve_num_hosp = ve_num_hosp )
+
+pars <- pars[ rep( 1:nrow( pars ), each=pars$n_per_par[1] ), ]
+resdf <-  cbind( pars, df )
+
+library(tidyverse)
+library(viridis)
+df <- group_by( resdf, vacc_cov, threshold_case_vacc ) %>% 
+  summarise( med_ve_size =  median( ve_size ), 
+             sd_ve_size =  sd( ve_size ) )
+  
+ggplot( df, aes( vacc_cov, threshold_case_vacc ) ) +
+  geom_tile( aes( fill = med_ve_size ) ) +
+  scale_fill_viridis() + 
+  annotate( "text", x=df$vacc_cov, y=df$threshold_case_vacc, label = sprintf("%.1f",df$med_ve_size) ) +
+  labs( x="Vaccine coverage", y="Threshold case incidence", fill="VE" ) +
+  theme_classic() 
+
+ggplot( df, aes( prop_vacc, threshold_case_vacc ) ) +
+   geom_point( aes( color = med_ve_size ) ) +
+   scale_fill_viridis() +
+   labs( x="Vaccine coverage", y="Threshold case incidence", fill="VE" ) +
+   theme_classic() 
+# 
+# resdf <- resdf[ resdf$rel_pep==0.5, ]
+# ## plot variance of medican across parameter estimates
+# library(tidyverse)
+# ggplot( resdf ) +
+#   geom_boxplot( aes(as.factor(100*vacc_cov), ci, fill=as.factor(100*rel_pop) ),
+#                 position = position_dodge(width = .6) ) +
+#   coord_cartesian( ylim=c(0,500) ) +
+#   labs( x="Vaccine coverage rate (%)", y="Cumulative incidence", 
+#          fill = "Post-exposure\nprotection (%)" ) +
+#   theme_classic() +
+#   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# # ggsave( "figs/vacccov_vacceff_inc.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# 
+# ggplot( resdf ) +
+#   geom_boxplot( aes(as.factor(100*vacc_cov), ove, fill=as.factor(100*rel_pep) ),
+#                 position = position_dodge(width = .6) ) +
+#   coord_cartesian( ylim=c(-50,80) ) +
+#   # geom_hline( yintercept = 70, linetype="dashed" ) +
+#   labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak size (%)", 
+#          fill = "Post-exposure\nprotection (%)" ) +
+#   theme_classic() +
+#   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+#          panel.grid.minor = element_line( colour="#f0f0f0" )) 
+#   # annotate( "text", x=4.8, y=76, label = "Vaccine efficacy", size=3)
+#    
+# # ggsave( "figs/vacccov_outbreaksize_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# 
+# ggplot( resdf ) +
+#   geom_boxplot( aes(as.factor(100*vacc_cov), dur, fill=as.factor(100*rel_pep) ),
+#                 position = position_dodge(width = .6) ) +
+#   # coord_cartesian( ylim=c(0,500) ) +
+#   labs( x="Vaccine coverage rate (%)", y="Outbreak duration", 
+#          fill = "Post-exposure\nprotection (%)" ) +
+#   theme_classic() +
+#   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
+# # ggsave( "figs/vacccov_dur_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# 
+# ggplot( resdf ) +
+#   geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(100*rel_pep) ),
+#                 position = position_dodge(width = .6) ) +
+#   # coord_cartesian( ylim=c(-50,80) ) +
+#   # geom_hline( yintercept = 70, linetype="dashed" ) +
+#   labs( x="Vaccine coverage rate (%)", y="Reduction in outbreak duration (%)", 
+#          fill = "Post-exposure\nprotection (%)" ) +
+#   theme_classic() +
+#   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+#          panel.grid.minor = element_line( colour="#f0f0f0" )) 
+# 
+# # ggsave( "figs/vacccov_dur_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# 
+# ggplot( resdf ) +
+#    geom_boxplot( aes(as.factor(100*vacc_cov), case_averted, 
+#                      fill=as.factor(100*rel_pep) ),
+#                  position = position_dodge(width = .6) ) + 
+#    coord_cartesian(ylim=c(-30,40)) +
+#    labs( x="Vaccine coverage rate (%)", y="Case averted per 10,000 doses",
+#          fill = "Post-exposure\nprotection (%)" ) +
+#    theme_classic() +
+#    theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+#           panel.grid.minor = element_line( colour="#f0f0f0" )) 
+# 
+# # ggsave( "figs/vacccov_caseaverted_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# 
+# ggplot( resdf ) +
+#   geom_boxplot( aes(as.factor(100*vacc_cov), 
+#                      vacc, fill=as.factor(100*rel_pep) ), 
+#                  position = position_dodge(width = .6) ) +
+#   labs( x="Vaccine coverage rate (%)", y="Number of Vaccine doses used", 
+#          fill = "Vaccine\nefficacy (%)" ) +
+#   theme_classic() +
+#   theme( panel.grid.major = element_line( colour="#f0f0f0" ),
+#          panel.grid.minor = element_line( colour="#f0f0f0" ))
+#    
+# # ggsave( "figs/vacccov_vaccdose_vacceff.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+# 
+# ## 
+# ggplot( resdf ) +
+#   geom_boxplot( aes(as.factor(100*vacc_cov), 
+#                      num_hospital, fill=as.factor(100*vacc_eff) ), 
+#                  position = position_dodge(width = .6) ) +
+#   labs( x="Vaccine coverage rate (%)", y="Number of affected hospitals", 
+#          fill = "Vaccine\nefficacy (%)" ) +
+#   theme_classic() +
+  theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
+   
+# ggsave( "figs/vacccov_vacceff_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
 ### Statistics by individuals runs for a single paramter (beta and delay_move)
 ```{r}
 ## parameters explored
@@ -133,7 +308,6 @@ ggplot( resdf ) +
 ```{r}
 res <- readRDS( "out/vacccov_relpop_par1-20_20181226T174800.rds" )
 pars <- readRDS( "out/pars_par1-20_20181226T174800.rds" )
-
 # pars <- do.call( rbind, list(pars1, pars2, pars3) )
 # res <- do.call( c, list(res1, res2, res3) )
 # saveRDS( res, "out/vacccov_relpop_par1-20_20181226T174800.rds" )
@@ -200,7 +374,6 @@ ggplot( resdf ) +
   theme( panel.grid.major = element_line( colour="#f0f0f0" ) ) 
 # ggsave( "figs/vacccov_dur_relpep.png", width=3.4*1.5, height=2.5*1.5, units="in" )
 
-
 ggplot( resdf ) +
   geom_boxplot( aes(as.factor(100*vacc_cov), ove_dur, fill=as.factor(100*rel_pep) ),
                 position = position_dodge(width = .6) ) +
@@ -250,8 +423,13 @@ ggplot( resdf ) +
   theme( panel.grid.major = element_line( colour="#f0f0f0" ) )
    
 # ggsave( "figs/vacccov_vacceff_vaccdose.png", width=3.4*1.5, height=2.5*1.5, units="in" )
-
 ```
+
+
+
+
+
+
 #### Vaccince coverage and isolation rate 
 ```{r}
 ## 30 parametrer sets and 200 runs per parameter set 
@@ -1102,3 +1280,53 @@ ggplot( ci ) +
 
 ```
 
+#### Outbreak size distribution upon importation of a case
+```{r}
+res <- readRDS( "out/importation_20190129T103006.rds" )
+ci <- sapply( seq_along(res), function(x) unlist( res[[x]]$cumul_symptom_onset ) ) 
+d <- data.frame( ci = as.vector( ci ) )
+library( ggplot2 )
+ggplot( d ) +
+   geom_histogram( aes( x=ci ), binwidth = 50 ) +
+   labs( x="Outbreak size", y="Frequency" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="grey94" ) )
+#    
+# ggsave( "figs/outbreak_size_distribution.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+
+ggplot( d, aes(ci) ) +
+  stat_ecdf( geom = "point" ) +
+  stat_ecdf( geom = "step" ) +
+  geom_vline( xintercept = 187 ) +
+  geom_hline( yintercept = ecdf( d$ci )( 187 ) ) +
+  geom_point( aes(187, ecdf( d$ci )( 187 )), color="red", size=1.5, inherit.aes=FALSE ) +
+  labs( x="Outbreak size", y="Cumulative probabability" ) +
+  theme_classic() +
+  theme( panel.grid.major = element_line( colour="grey94" ) ) + 
+  annotate( "text", x = 10000, y = ecdf( d$ci )( 150 ), 
+            label = paste0( "2015 Korean MERS-CoV outbreak (", sprintf("%.1f",ecdf( d$ci )( 187 )), " percentile)"), size=3 )
+# ggsave( "figs/outbreak_size_distribution_cumul.png", width=3.4*1.5, height=2.5*1.5, units="in" )  
+
+ci_ordered <- d$ci[ order(d$ci) ]
+cdf <- ecdf( d$ci )
+cdf_val <- cdf( ci_ordered )
+d <- bind_cols( data_frame( t=1:nrow(daily_symptom_onset) ), tbl_df(daily_symptom_onset) ) 
+d_long <- gather( d, key, val, -t)
+ggplot( d_long ) +
+   geom_line( aes( x=t, y=val, color=key ), alpha=0.2, show.legend=FALSE ) + 
+   scale_color_manual( values=rep("black",1000) ) +
+   labs( x="Day", y="Symptom onset" ) +
+   theme_classic() +
+   theme( panel.grid.major = element_line( colour="grey94" ) )
+
+# ggsave( "figs/outbreak_size_distribution.png", width=3.4*1.5, height=2.5*1.5, units="in" )
+```
+#### Statistics on importation-driven outbreaks
+```{r}
+res <- readRDS( "out/importation_20181221T143502.rds" )
+
+ci <- sapply( seq_along(res), function(x) unlist( res[[x]]$cumul_symptom_onset ) ) 
+d <- data.frame( ci = as.vector( ci ) )
+table( d$ci )
+  
+```
